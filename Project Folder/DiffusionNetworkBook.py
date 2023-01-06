@@ -1,5 +1,4 @@
 import os
-
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -9,35 +8,43 @@ from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as tt
+from DataLoadingAndPrep import Digits
+from datetime import datetime
 
 
 PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 
-class Digits(Dataset):
-    """Scikit-Learn Digits dataset."""
 
-    def __init__(self, mode='train', transforms=None):
-        digits = load_digits()
-        if mode == 'train':
-            self.data = digits.data[:1000].astype(np.float32)
-        elif mode == 'val':
-            self.data = digits.data[1000:1350].astype(np.float32)
-        else:
-            self.data = digits.data[1350:].astype(np.float32)
-
-        self.transforms = transforms
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        sample = self.data[idx]
-        if self.transforms:
-            sample = self.transforms(sample)
-        return sample
+D = 64   # input dimension
+M = 256  # the number of neurons in scale (s) and translation (t) nets
+T = 30  #number of steps
+beta = 0.9
+lr = 1e-3 # learning rate
+num_epochs = 1000 # max. number of epochs
+max_patience = 50 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 
 
+#networks
+p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
+                        nn.Linear(M, M), nn.LeakyReLU(),
+                        nn.Linear(M, M), nn.LeakyReLU(),
+                        nn.Linear(M, 2 * D)) for _ in range(T-1)]
+decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
+                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                            nn.Linear(M*2, D), nn.Tanh())
+p_dnns = [nn.Sequential(
+                        nn.Linear(D, M), nn.LeakyReLU(),
+                        nn.Linear(M, M), nn.LeakyReLU(),
+                        nn.Linear(M, M), nn.LeakyReLU(),
+                        nn.Linear(M, 2 * D)) for _ in range(T-1)]
+decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
+                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                            nn.Linear(M*2, D), nn.Tanh())
+
+#helper functions
 def log_normal_diag(x, mu, log_var, reduction=None, dim=None):
     log_p = -0.5 * torch.log(2. * PI) - 0.5 * log_var - 0.5 * torch.exp(-log_var) * (x - mu)**2.
     if reduction == 'avg':
@@ -46,7 +53,6 @@ def log_normal_diag(x, mu, log_var, reduction=None, dim=None):
         return torch.sum(log_p, dim)
     else:
         return log_p
-
 def log_standard_normal(x, reduction=None, dim=None):
     log_p = -0.5 * torch.log(2. * PI) - 0.5 * x**2.
     if reduction == 'avg':
@@ -55,7 +61,6 @@ def log_standard_normal(x, reduction=None, dim=None):
         return torch.sum(log_p, dim)
     else:
         return log_p
-
 
 class DDGM(nn.Module):
     def __init__(self, p_dnns, decoder_net, beta, T, D):
@@ -115,7 +120,7 @@ class DDGM(nn.Module):
             KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.beta) * zs[i], torch.log(self.beta)) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
 
             KL = KL + KL_i
-
+        # KL, RE
         # Final ELBO
         if reduction == 'sum':
             loss = -(RE - KL).sum()
@@ -142,8 +147,6 @@ class DDGM(nn.Module):
             zs.append(self.reparameterization_gaussian_diffusion(zs[-1], i))
 
         return zs[-1]
-
-
 
 def evaluation(test_loader, name=None, model_best=None, epoch=None):
     # EVALUATION
@@ -181,7 +184,6 @@ def samples_real(name, test_loader):
 
     plt.savefig(name+'_real_images.pdf', bbox_inches='tight')
     plt.close()
-
 
 def samples_generated(name, data_loader, extra_name=''):
     # GENERATIONS-------
@@ -223,18 +225,12 @@ def samples_diffusion(name, data_loader, extra_name=''):
     plt.savefig(name + '_generated_diffusion' + extra_name + '.pdf', bbox_inches='tight')
     plt.close()
 
-
-
 def plot_curve(name, nll_val):
     plt.plot(np.arange(len(nll_val)), nll_val, linewidth='3')
     plt.xlabel('epochs')
     plt.ylabel('nll')
     plt.savefig(name + '_nll_val_curve.pdf', bbox_inches='tight')
     plt.close()
-
-
-
-
 
 def training(name, max_patience, num_epochs, model, optimizer, training_loader, val_loader):
     nll_val = []
@@ -278,8 +274,6 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
 
     return nll_val
 
-
-
 transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
 train_data = Digits(mode='train', transforms=transforms)
 val_data = Digits(mode='val', transforms=transforms)
@@ -291,36 +285,13 @@ test_loader = DataLoader(test_data, batch_size=64, shuffle=False)
 
 
 
-D = 64   # input dimension
-
-M = 256  # the number of neurons in scale (s) and translation (t) nets
-
-T = 5
-
-beta = 0.9
-
-lr = 1e-3 # learning rate
-num_epochs = 1000 # max. number of epochs
-max_patience = 50 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
-
-
-
-
-name = 'ddmg' + '_' + str(T) + '_' + str(beta)
-result_dir = 'results/' + name + '/'
+name = 'Diffusion' + '_' + "T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
+result_dir = 'Results/' + name + '/'
 if not (os.path.exists(result_dir)):
-    os.mkdir(result_dir)
+    os.makedirs(result_dir)
 
 
-p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
-                        nn.Linear(M, M), nn.LeakyReLU(),
-                        nn.Linear(M, M), nn.LeakyReLU(),
-                        nn.Linear(M, 2 * D)) for _ in range(T-1)]
 
-decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, D), nn.Tanh())
 
 
 # Eventually, we initialize the full model
@@ -351,3 +322,10 @@ plot_curve(result_dir + name, nll_val)
 
 samples_generated(result_dir + name, test_loader, extra_name='FINAL')
 samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
+
+
+#loss = -(RE - KL).mean()
+
+
+
+
