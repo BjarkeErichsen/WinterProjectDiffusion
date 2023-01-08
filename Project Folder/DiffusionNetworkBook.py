@@ -16,7 +16,7 @@ PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 
 
-D = 64   # input dimension
+D = 128   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
 T = 30  #number of steps
 beta = 0.9
@@ -24,8 +24,27 @@ lr = 1e-3 # learning rate
 num_epochs = 1000 # max. number of epochs
 max_patience = 50 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 
-
-#networks
+#tilføjede hyperparametre
+using_conv = True
+conv_channels = 8
+D = 64
+batch_size = 32
+#networks:
+p_dnns = [nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
+                        nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
+                        nn.Flatten(),
+                        nn.Linear(512, M), nn.LeakyReLU(),
+                        nn.Linear(M, M), nn.LeakyReLU(),
+                        nn.Linear(M, M), nn.LeakyReLU(),
+                        nn.Linear(M, 2 * D)) for _ in range(T-1)]
+decoder_net = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
+                            nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
+                            nn.Flatten(),
+                            nn.Linear(512, M*2), nn.LeakyReLU(),
+                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                            nn.Linear(M*2, D), nn.Tanh())
+"""
 p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
                         nn.Linear(M, M), nn.LeakyReLU(),
                         nn.Linear(M, M), nn.LeakyReLU(),
@@ -34,15 +53,7 @@ decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
                             nn.Linear(M*2, M*2), nn.LeakyReLU(),
                             nn.Linear(M*2, M*2), nn.LeakyReLU(),
                             nn.Linear(M*2, D), nn.Tanh())
-p_dnns = [nn.Sequential(
-                        nn.Linear(D, M), nn.LeakyReLU(),
-                        nn.Linear(M, M), nn.LeakyReLU(),
-                        nn.Linear(M, M), nn.LeakyReLU(),
-                        nn.Linear(M, 2 * D)) for _ in range(T-1)]
-decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, D), nn.Tanh())
+"""
 
 #helper functions
 def log_normal_diag(x, mu, log_var, reduction=None, dim=None):
@@ -61,6 +72,7 @@ def log_standard_normal(x, reduction=None, dim=None):
         return torch.sum(log_p, dim)
     else:
         return log_p
+
 
 class DDGM(nn.Module):
     def __init__(self, p_dnns, decoder_net, beta, T, D):
@@ -158,6 +170,10 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
     loss = 0.
     N = 0.
     for indx_batch, test_batch in enumerate(test_loader):
+        if using_conv:
+            test_batch = torch.unsqueeze(test_batch, 1) #Bjarke added this
+
+
         loss_t = model_best.forward(test_batch, reduction='sum')
         loss = loss + loss_t.item()
         N = N + test_batch.shape[0]
@@ -170,68 +186,6 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
 
     return loss
 
-def samples_real(name, test_loader):
-    # REAL-------
-    num_x = 4
-    num_y = 4
-    x = next(iter(test_loader)).detach().numpy()
-
-    fig, ax = plt.subplots(num_x, num_y)
-    for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(x[i], (8, 8))
-        ax.imshow(plottable_image, cmap='gray')
-        ax.axis('off')
-
-    plt.savefig(name+'_real_images.pdf', bbox_inches='tight')
-    plt.close()
-
-def samples_generated(name, data_loader, extra_name=''):
-    # GENERATIONS-------
-    model_best = torch.load(name + '.model')
-    model_best.eval()
-
-    num_x = 4
-    num_y = 4
-    x = model_best.sample(batch_size=num_x * num_y)
-    x = x.detach().numpy()
-
-    fig, ax = plt.subplots(num_x, num_y)
-    for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(x[i], (8, 8))
-        ax.imshow(plottable_image, cmap='gray')
-        ax.axis('off')
-
-    plt.savefig(name + '_generated_images' + extra_name + '.pdf', bbox_inches='tight')
-    plt.close()
-
-def samples_diffusion(name, data_loader, extra_name=''):
-    x = next(iter(data_loader))
-
-    # GENERATIONS-------
-    model_best = torch.load(name + '.model')
-    model_best.eval()
-
-    num_x = 4
-    num_y = 4
-    z = model_best.sample_diffusion(x)
-    z = z.detach().numpy()
-
-    fig, ax = plt.subplots(num_x, num_y)
-    for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(z[i], (8, 8))
-        ax.imshow(plottable_image, cmap='gray')
-        ax.axis('off')
-
-    plt.savefig(name + '_generated_diffusion' + extra_name + '.pdf', bbox_inches='tight')
-    plt.close()
-
-def plot_curve(name, nll_val):
-    plt.plot(np.arange(len(nll_val)), nll_val, linewidth='3')
-    plt.xlabel('epochs')
-    plt.ylabel('nll')
-    plt.savefig(name + '_nll_val_curve.pdf', bbox_inches='tight')
-    plt.close()
-
 def training(name, max_patience, num_epochs, model, optimizer, training_loader, val_loader):
     nll_val = []
     best_nll = 1000.
@@ -242,6 +196,9 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
         # TRAINING
         model.train()
         for indx_batch, batch in enumerate(training_loader):
+            if using_conv:
+                batch = torch.unsqueeze(batch, 1)  # Bjarke added this
+
             loss = model.forward(batch)
 
             optimizer.zero_grad()
@@ -274,41 +231,94 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
 
     return nll_val
 
+def samples_real(name, test_loader):
+    # REAL-------
+    num_x = 4
+    num_y = 4
+    x = next(iter(test_loader)).detach().numpy()
+
+    fig, ax = plt.subplots(num_x, num_y)
+    for i, ax in enumerate(ax.flatten()):
+        plottable_image = np.reshape(x[i], (8, 8))
+        ax.imshow(plottable_image, cmap='gray')
+        ax.axis('off')
+
+    plt.savefig(name+'_real_images.pdf', bbox_inches='tight')
+    plt.close()
+
+#sample from forward diffusion that are moved to results
+def samples_generated(name, data_loader, extra_name=''):
+    # GENERATIONS-------
+    model_best = torch.load(name + '.model')
+    model_best.eval()
+
+    num_x = 4
+    num_y = 4
+    x = model_best.sample(batch_size=num_x * num_y)
+    x = x.detach().numpy()
+
+    fig, ax = plt.subplots(num_x, num_y)
+    for i, ax in enumerate(ax.flatten()):
+        plottable_image = np.reshape(x[i], (8, 8))
+        ax.imshow(plottable_image, cmap='gray')
+        ax.axis('off')
+
+    plt.savefig(name + '_generated_images' + extra_name + '.pdf', bbox_inches='tight')
+    plt.close()
+def samples_diffusion(name, data_loader, extra_name=''):
+    x = next(iter(data_loader))
+
+    # GENERATIONS-------
+    model_best = torch.load(name + '.model')
+    model_best.eval()
+
+    num_x = 4
+    num_y = 4
+    z = model_best.sample_diffusion(x)
+    z = z.detach().numpy()
+
+    fig, ax = plt.subplots(num_x, num_y)
+    for i, ax in enumerate(ax.flatten()):
+        plottable_image = np.reshape(z[i], (8, 8))
+        ax.imshow(plottable_image, cmap='gray')
+        ax.axis('off')
+
+    plt.savefig(name + '_generated_diffusion' + extra_name + '.pdf', bbox_inches='tight')
+    plt.close()
+
+#plot of nll = negative log likelihood, we of course want to minimize negative log likelihood
+def plot_curve(name, nll_val):
+    plt.plot(np.arange(len(nll_val)), nll_val, linewidth='3')
+    plt.xlabel('epochs')
+    plt.ylabel('nll')
+    plt.savefig(name + '_nll_val_curve.pdf', bbox_inches='tight')
+    plt.close()
+
+
+
 transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
 train_data = Digits(mode='train', transforms=transforms)
 val_data = Digits(mode='val', transforms=transforms)
 test_data = Digits(mode='test', transforms=transforms)
 
-training_loader = DataLoader(train_data, batch_size=64, shuffle=True)
-val_loader = DataLoader(val_data, batch_size=64, shuffle=False)
-test_loader = DataLoader(test_data, batch_size=64, shuffle=False)
-
-
+training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
 name = 'Diffusion' + '_' + "T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
 result_dir = 'Results/' + name + '/'
 if not (os.path.exists(result_dir)):
     os.makedirs(result_dir)
 
-
-
-
-
 # Eventually, we initialize the full model
 model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
-
 
 # OPTIMIZER
 optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
 
-
-
 # Training procedure
 nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model, optimizer=optimizer,
                        training_loader=training_loader, val_loader=val_loader)
-
-
-
 
 # Final evaluation
 test_loss = evaluation(name=result_dir + name, test_loader=test_loader)
@@ -317,15 +327,16 @@ f.write(str(test_loss))
 f.close()
 
 samples_real(result_dir + name, test_loader)
-
 plot_curve(result_dir + name, nll_val)
 
+#We generate a sample whenever we encounter a NEW BEST
 samples_generated(result_dir + name, test_loader, extra_name='FINAL')
 samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
 
 
-#loss = -(RE - KL).mean()
+"""
+loss = -(RE - KL).mean()
 
-
+"""
 
 

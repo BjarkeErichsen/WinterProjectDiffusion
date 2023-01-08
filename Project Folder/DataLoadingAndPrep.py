@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as tt
 
-
+#torch.from_numpy(xtensor, dtype=torch.FloatTensor32)
 
 class Digits(Dataset):
     """Scikit-Learn Digits dataset."""
