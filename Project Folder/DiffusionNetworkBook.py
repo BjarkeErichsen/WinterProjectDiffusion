@@ -18,18 +18,19 @@ EPS = 1.e-7
 
 D = 128   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 30  #number of steps
+T = 5  #number of steps
 beta = 0.9
 lr = 1e-3 # learning rate
 num_epochs = 1000 # max. number of epochs
 max_patience = 50 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 
 #tilføjede hyperparametre
-using_conv = True
+using_conv = False
 conv_channels = 8
 D = 64
 batch_size = 32
 #networks:
+"""
 p_dnns = [nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
                         nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
                         nn.Flatten(),
@@ -53,7 +54,7 @@ decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
                             nn.Linear(M*2, M*2), nn.LeakyReLU(),
                             nn.Linear(M*2, M*2), nn.LeakyReLU(),
                             nn.Linear(M*2, D), nn.Tanh())
-"""
+
 
 #helper functions
 def log_normal_diag(x, mu, log_var, reduction=None, dim=None):
@@ -143,10 +144,15 @@ class DDGM(nn.Module):
 
     def sample(self, batch_size=64):
         z = torch.randn([batch_size, self.D])
+        if using_conv:
+            z = torch.unsqueeze(z, 1)  # Bjarke added this
+
         for i in range(len(self.p_dnns) - 1, -1, -1):
             h = self.p_dnns[i](z)
             mu_i, log_var_i = torch.chunk(h, 2, dim=1)
             z = self.reparameterization(torch.tanh(mu_i), log_var_i)
+            if using_conv:
+                z = torch.unsqueeze(z, 1)  # Bjarke added this
 
         mu_x = self.decoder_net(z)
 
