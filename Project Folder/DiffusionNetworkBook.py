@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as tt
 from DataLoadingAndPrep import Digits
+from FredeDataLoader import DataImage
 from datetime import datetime
 
 
@@ -16,18 +17,20 @@ PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 
 
-D = 128   # input dimension
+D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 5  #number of steps
+T = 7  #number of steps
 beta = 0.9
-lr = 1e-3 # learning rate
-num_epochs = 1000 # max. number of epochs
-max_patience = 50 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+lr = 1e-3 #1e-4 # learning rate
+num_epochs = 500 # max. number of epochs
+max_patience = 100 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 
 #tilføjede hyperparametre
 using_conv = False
+Using_image_dataset = True
+if Using_image_dataset:
+    D = 13872
 conv_channels = 8
-D = 64
 batch_size = 32
 #networks:
 """
@@ -46,6 +49,7 @@ decoder_net = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels,
                             nn.Linear(M*2, M*2), nn.LeakyReLU(),
                             nn.Linear(M*2, D), nn.Tanh())
 """
+
 p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
                         nn.Linear(M, M), nn.LeakyReLU(),
                         nn.Linear(M, M), nn.LeakyReLU(),
@@ -149,7 +153,7 @@ class DDGM(nn.Module):
 
         for i in range(len(self.p_dnns) - 1, -1, -1):
             h = self.p_dnns[i](z)
-            mu_i, log_var_i = torch.chunk(h, 2, dim=1)
+            mu_i, log_var_i = torch.chunk(h, 2, dim=1) #splits the tensor into 2
             z = self.reparameterization(torch.tanh(mu_i), log_var_i)
             if using_conv:
                 z = torch.unsqueeze(z, 1)  # Bjarke added this
@@ -171,7 +175,6 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
     if model_best is None:
         # load best performing model
         model_best = torch.load(name + '.model')
-
     model_best.eval()
     loss = 0.
     N = 0.
@@ -206,7 +209,7 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
                 batch = torch.unsqueeze(batch, 1)  # Bjarke added this
 
             loss = model.forward(batch)
-
+            print(indx_batch)
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
@@ -306,6 +309,11 @@ transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
 train_data = Digits(mode='train', transforms=transforms)
 val_data = Digits(mode='val', transforms=transforms)
 test_data = Digits(mode='test', transforms=transforms)
+if Using_image_dataset:
+    train_data = DataImage(mode='train')
+    val_data = DataImage(mode='val')
+    test_data = DataImage(mode='test')
+
 
 training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
