@@ -11,53 +11,58 @@ import torchvision.transforms as tt
 from DataLoadingAndPrep import Digits
 from FredeDataLoader import DataImage
 from datetime import datetime
+import wandb
 
+#input eksperiment type
+type_of_eksperiment = dict(using_conv = False, using_wandb = True, Using_image_dataset = False, run_sweep = False)
+using_conv = type_of_eksperiment['using_conv']
+using_wandb = type_of_eksperiment['using_wandb']
+Using_image_dataset = type_of_eksperiment['Using_image_dataset']
+run_sweep = type_of_eksperiment['run_sweep']
 
+#normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
-
-
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 7  #number of steps
-beta = 0.9
+T = 5  #number of steps
+beta = 0.8
 lr = 1e-3 #1e-4 # learning rate
-num_epochs = 500 # max. number of epochs
-max_patience = 100 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+num_epochs = 10 # max. number of epochs
+max_patience = 10 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 
 #tilføjede hyperparametre
-using_conv = False
-Using_image_dataset = True
 if Using_image_dataset:
     D = 13872
 conv_channels = 8
 batch_size = 32
+
 #networks:
-"""
-p_dnns = [nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
-                        nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
-                        nn.Flatten(),
-                        nn.Linear(512, M), nn.LeakyReLU(),
-                        nn.Linear(M, M), nn.LeakyReLU(),
-                        nn.Linear(M, M), nn.LeakyReLU(),
-                        nn.Linear(M, 2 * D)) for _ in range(T-1)]
-decoder_net = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
+if using_conv:
+    p_dnns = [nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
                             nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
                             nn.Flatten(),
-                            nn.Linear(512, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, D), nn.Tanh())
-"""
+                            nn.Linear(512, M), nn.LeakyReLU(),
+                            nn.Linear(M, M), nn.LeakyReLU(),
+                            nn.Linear(M, M), nn.LeakyReLU(),
+                            nn.Linear(M, 2 * D)) for _ in range(T-1)]
+    decoder_net = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
+                                nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
+                                nn.Flatten(),
+                                nn.Linear(512, M*2), nn.LeakyReLU(),
+                                nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                                nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                                nn.Linear(M*2, D), nn.Tanh())
+else:
 
-p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
-                        nn.Linear(M, M), nn.LeakyReLU(),
-                        nn.Linear(M, M), nn.LeakyReLU(),
-                        nn.Linear(M, 2 * D)) for _ in range(T-1)]
-decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                            nn.Linear(M*2, D), nn.Tanh())
+    p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
+                            nn.Linear(M, M), nn.LeakyReLU(),
+                            nn.Linear(M, M), nn.LeakyReLU(),
+                            nn.Linear(M, 2 * D)) for _ in range(T-1)]
+    decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
+                                nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                                nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                                nn.Linear(M*2, D), nn.Tanh())
 
 
 #helper functions
@@ -200,6 +205,8 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
     best_nll = 1000.
     patience = 0
 
+    if using_wandb:
+        wandb.watch(model, log="all", log_freq = 1000)
     # Main loop
     for e in range(num_epochs):
         # TRAINING
@@ -209,7 +216,6 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
                 batch = torch.unsqueeze(batch, 1)  # Bjarke added this
 
             loss = model.forward(batch)
-            print(indx_batch)
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
@@ -217,15 +223,18 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
         nll_val.append(loss_val)  # save for plotting
-
+        if using_wandb:
+            wandb.log({'validation nll':loss_val }, step=e)
         if e == 0:
-            print('saved!')
-            torch.save(model, name + '.model')
+            if not using_wandb: #save the model in the results folder
+                torch.save(model, name + '.model')
+            print('started')
             best_nll = loss_val
         else:
             if loss_val < best_nll:
-                print('saved!')
+                #if not using_wandb: #save the model in the results folder
                 torch.save(model, name + '.model')
+                print('new best')
                 best_nll = loss_val
                 patience = 0
 
@@ -240,6 +249,8 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
 
     return nll_val
 
+
+#sample a real image
 def samples_real(name, test_loader):
     # REAL-------
     num_x = 4
@@ -254,8 +265,7 @@ def samples_real(name, test_loader):
 
     plt.savefig(name+'_real_images.pdf', bbox_inches='tight')
     plt.close()
-
-#sample from forward diffusion that are moved to results
+#sample from backward diffusion that are moved to results
 def samples_generated(name, data_loader, extra_name=''):
     # GENERATIONS-------
     model_best = torch.load(name + '.model')
@@ -274,6 +284,7 @@ def samples_generated(name, data_loader, extra_name=''):
 
     plt.savefig(name + '_generated_images' + extra_name + '.pdf', bbox_inches='tight')
     plt.close()
+#sample forward diffusion
 def samples_diffusion(name, data_loader, extra_name=''):
     x = next(iter(data_loader))
 
@@ -294,7 +305,6 @@ def samples_diffusion(name, data_loader, extra_name=''):
 
     plt.savefig(name + '_generated_diffusion' + extra_name + '.pdf', bbox_inches='tight')
     plt.close()
-
 #plot of nll = negative log likelihood, we of course want to minimize negative log likelihood
 def plot_curve(name, nll_val):
     plt.plot(np.arange(len(nll_val)), nll_val, linewidth='3')
@@ -303,54 +313,95 @@ def plot_curve(name, nll_val):
     plt.savefig(name + '_nll_val_curve.pdf', bbox_inches='tight')
     plt.close()
 
+def test(model, test_loader, nll_val):
+    # Final evaluation
+
+    test_loss = evaluation(name=result_dir + name, test_loader=test_loader)
+    f = open(result_dir + name + '_test_loss.txt', "w")
+    f.write(str(test_loss))
+    f.close()
+
+    samples_real(result_dir + name, test_loader)
+    plot_curve(result_dir + name, nll_val)
+
+    # We generate a sample whenever we encounter a NEW BEST
+    samples_generated(result_dir + name, test_loader, extra_name='FINAL')
+    samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
+
+    torch.onnx.export(model, "model.onnx")
+    wandb.save("model.onnx")
+def make(config):
+    T = config.T
+    M = config.M
+    model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
+    optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
+
+    return model, optimizer
+def model_pipeline(hyperparams):
+
+    with wandb.init(project="pytorch-demo", config = hyperparams):
+        config = wandb.config
+        # Eventually, we initialize the full model
+        model, optimizer = make(config)
+        print(model)
+
+        # Training procedure
+        nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model, optimizer=optimizer,
+                               training_loader=training_loader, val_loader=val_loader)
+
+        #test(model, test_loader, nll_val)
 
 
-transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
-train_data = Digits(mode='train', transforms=transforms)
-val_data = Digits(mode='val', transforms=transforms)
-test_data = Digits(mode='test', transforms=transforms)
-if Using_image_dataset:
-    train_data = DataImage(mode='train')
-    val_data = DataImage(mode='val')
-    test_data = DataImage(mode='test')
+
+if __name__ == "__main__":
+
+    transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
+    train_data = Digits(mode='train', transforms=transforms)
+    val_data = Digits(mode='val', transforms=transforms)
+    test_data = Digits(mode='test', transforms=transforms)
+    training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+    if Using_image_dataset:
+        train_data = DataImage(mode='train')
+        val_data = DataImage(mode='val')
+        test_data = DataImage(mode='test')
+    name = 'Diffusion' + '_' + "T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
+    result_dir = 'Results/' + name + '/'
+    if not (os.path.exists(result_dir)):
+        os.makedirs(result_dir)
 
 
-training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
-
-name = 'Diffusion' + '_' + "T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
-result_dir = 'Results/' + name + '/'
-if not (os.path.exists(result_dir)):
-    os.makedirs(result_dir)
-
-# Eventually, we initialize the full model
-model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
-
-# OPTIMIZER
-optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
-
-# Training procedure
-nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model, optimizer=optimizer,
-                       training_loader=training_loader, val_loader=val_loader)
-
-# Final evaluation
-test_loss = evaluation(name=result_dir + name, test_loader=test_loader)
-f = open(result_dir + name + '_test_loss.txt', "w")
-f.write(str(test_loss))
-f.close()
-
-samples_real(result_dir + name, test_loader)
-plot_curve(result_dir + name, nll_val)
-
-#We generate a sample whenever we encounter a NEW BEST
-samples_generated(result_dir + name, test_loader, extra_name='FINAL')
-samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
+    if using_wandb:
 
 
-"""
-loss = -(RE - KL).mean()
+        if run_sweep:
+            sweep_config = {
+                'method': 'grid',
+                'name': 'sweep',
+                'metric': {
+                    'name': 'nll',
+                    'goal': 'minimize'},
+                'parameters': {
+                    'T': {'values': [3, 6, 15]},
+                    'M': {'values': [256, 64]}
+                }
+            }
+                #.init(project="Diffusion", config = sweep_config)
+                #sweep_id = wandb.sweep(sweep=sweep_config, project="Diffusion")
+                #wandb.agent(sweep_id, function=model_pipeline, count = 3)
+        else:
+            config = dict(T = 6, M = 65)
+            model_pipeline(config)
 
-"""
+    else:
+
+        model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
+        optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
+        nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model,
+                           optimizer=optimizer,
+                           training_loader=training_loader, val_loader=val_loader)
+        test(model, test_loader, nll_val)
+
 
 

@@ -40,7 +40,7 @@ class DataImage(Dataset):
 if __name__ == "__main__":
     #path is path to folder
     dataset = DataImage() # takes either .npy or .tiff files
-    a =  dataset.__getitem__(0)
+
 
     # Spitting the loaded dataset into train, test and validation sets.
     train_size = int(0.8 * len(dataset))
