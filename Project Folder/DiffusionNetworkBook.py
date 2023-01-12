@@ -348,7 +348,7 @@ if __name__ == "__main__":
         val_data = DataImage(mode='val')
         test_data = DataImage(mode='test')
     else:
-        train_data = Digits(mode='train', transforms=transforms, reshape=False)
+        train_data = Digits(mode='train', transforms=transforms)
         val_data = Digits(mode='val', transforms=transforms)
         test_data = Digits(mode='test', transforms=transforms)
 
