@@ -14,7 +14,7 @@ import torchvision.transforms as tt
 class Digits(Dataset):
     """Scikit-Learn Digits dataset."""
 
-    def __init__(self, mode='train', transforms=None):
+    def __init__(self, mode='train', transforms=None, reshape = True):
         digits = load_digits()
         if mode == 'train':
             self.data = digits.data[:1000].astype(np.float32)
@@ -23,6 +23,8 @@ class Digits(Dataset):
         else:
             self.data = digits.data[1350:].astype(np.float32)
 
+        if reshape:
+            self.data =  self.data.reshape((self.data.shape[0], 8, 8))
         self.transforms = transforms
 
     def __len__(self):
