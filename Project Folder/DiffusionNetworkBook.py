@@ -13,7 +13,7 @@ from FredeDataLoader import DataImage
 from datetime import datetime
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = False, Using_image_dataset = False)
+type_of_eksperiment = dict(using_conv = True, Using_image_dataset = False)
 using_conv = type_of_eksperiment['using_conv']
 Using_image_dataset = type_of_eksperiment['Using_image_dataset']
 
@@ -25,8 +25,8 @@ M = 256  # the number of neurons in scale (s) and translation (t) nets
 T = 5  #number of steps
 beta = 0.8
 lr = 1e-3 #1e-4 # learning rate
-num_epochs = 10 # max. number of epochs
-max_patience = 10 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+num_epochs = 500 # max. number of epochs
+max_patience = 40 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
 
 #tilføjede hyperparametre
@@ -37,22 +37,24 @@ if Using_image_dataset:
 #networks:
 if using_conv:
     conv_channels = 8
-    p_dnns = [nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
-                            nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
-                            nn.Flatten(),
+    k_size = 3 #must be 3, 5, 7 etc i e. not even numbers
+    p_dnns = [nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=k_size+2, padding = int((k_size+2-1)/2)), nn.ReLU(),
+                                nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
+                                nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
+                                nn.Flatten(),
                             nn.Linear(512, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, 2 * D)) for _ in range(T-1)]
-    decoder_net = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
-                                nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
+    decoder_net = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=k_size+2, padding = int((k_size+2-1)/2)), nn.ReLU(),
+                                nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
+                                nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
                                 nn.Flatten(),
                                 nn.Linear(512, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, D), nn.Tanh())
 else:
-
     p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
@@ -353,7 +355,8 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-    name = 'Diffusion' + '_' + "T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
+
+    name = 'Diffusion' + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
     result_dir = 'Results/' + name + '/'
     if not (os.path.exists(result_dir)):
         os.makedirs(result_dir)
