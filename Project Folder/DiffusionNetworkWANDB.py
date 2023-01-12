@@ -11,11 +11,13 @@ import torchvision.transforms as tt
 from DataLoadingAndPrep import Digits
 from FredeDataLoader import DataImage
 from datetime import datetime
+import wandb
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = False, Using_image_dataset = False)
+type_of_eksperiment = dict(using_conv = False, Using_image_dataset = False, run_sweep = False)
 using_conv = type_of_eksperiment['using_conv']
 Using_image_dataset = type_of_eksperiment['Using_image_dataset']
+run_sweep = type_of_eksperiment['run_sweep']
 
 #normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
@@ -27,16 +29,15 @@ beta = 0.8
 lr = 1e-3 #1e-4 # learning rate
 num_epochs = 10 # max. number of epochs
 max_patience = 10 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
-batch_size = 32
 
 #tilføjede hyperparametre
 if Using_image_dataset:
     D = 13872
-
+conv_channels = 8
+batch_size = 32
 
 #networks:
 if using_conv:
-    conv_channels = 8
     p_dnns = [nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
                             nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=3, padding = 1), nn.ReLU(),
                             nn.Flatten(),
@@ -202,6 +203,8 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
     best_nll = 1000.
     patience = 0
 
+
+    wandb.watch(model, log="all", log_freq = 1000)
     # Main loop
     for e in range(num_epochs):
         # TRAINING
@@ -218,8 +221,9 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
         nll_val.append(loss_val)  # save for plotting
-
+        wandb.log({'validation nll':loss_val }, step=e)
         if e == 0:
+            torch.save(model, name + '.model')
             print('started')
             best_nll = loss_val
         else:
@@ -327,19 +331,39 @@ def test(model, test_loader, nll_val):
             dummy_input = test_batch
             outputs = model(test_batch)
             break
+    torch.onnx.export(model, dummy_input, "model.onnx", input_names = "noice", output_names = "digit")
+    wandb.save("model.onnx")
 
 
 
 
 
+def make(config):
+    T = config.T
+    M = config.M
+    model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
+    optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
 
+    return model, optimizer
+def model_pipeline(hyperparams):
+
+    with wandb.init(project="pytorch-demo", config = hyperparams):
+        config = wandb.config
+        # Eventually, we initialize the full model
+        model, optimizer = make(config)
+        print(model)
+
+        # Training procedure
+        nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model, optimizer=optimizer,
+                               training_loader=training_loader, val_loader=val_loader)
+
+        #test(model, test_loader, nll_val)
 
 
 
 if __name__ == "__main__":
 
     transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
-
     if Using_image_dataset:
         train_data = DataImage(mode='train')
         val_data = DataImage(mode='val')
@@ -358,12 +382,32 @@ if __name__ == "__main__":
     if not (os.path.exists(result_dir)):
         os.makedirs(result_dir)
 
+
+
+    if run_sweep:
+        sweep_config = {
+            'method': 'grid',
+            'name': 'sweep',
+            'metric': {
+                'name': 'nll',
+                'goal': 'minimize'},
+            'parameters': {
+                'T': {'values': [3, 6, 15]},
+                'M': {'values': [256, 64]}
+            }
+        }
+            #.init(project="Diffusion", config = sweep_config)
+            #sweep_id = wandb.sweep(sweep=sweep_config, project="Diffusion")
+            #wandb.agent(sweep_id, function=model_pipeline, count = 3)
+    else:
+        config = dict(T = 6, M = 65)
+        model_pipeline(config)
+
     model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
     optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
     nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model,
                        optimizer=optimizer,
                        training_loader=training_loader, val_loader=val_loader)
     test(model, test_loader, nll_val)
-
 
 
