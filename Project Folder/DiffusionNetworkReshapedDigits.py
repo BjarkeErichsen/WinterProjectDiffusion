@@ -13,7 +13,7 @@ from FredeDataLoader import DataImage
 from datetime import datetime
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = False, Using_image_dataset = False, reshape_Input = False)
+type_of_eksperiment = dict(using_conv = True, Using_image_dataset = False, reshape_Input = True)
 using_conv = type_of_eksperiment['using_conv']
 Using_image_dataset = type_of_eksperiment['Using_image_dataset']
 reshape_Input = type_of_eksperiment["reshape_Input"]
@@ -32,7 +32,6 @@ batch_size = 32
 #tilføjede hyperparametre
 if Using_image_dataset:
     D = 13872
-
 
 #networks:
 if using_conv:
