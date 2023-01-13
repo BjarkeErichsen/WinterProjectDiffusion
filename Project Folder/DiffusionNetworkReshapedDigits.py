@@ -13,10 +13,10 @@ from FredeDataLoader import DataImage
 from datetime import datetime
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = True, Using_image_dataset = False)
+type_of_eksperiment = dict(using_conv = False, Using_image_dataset = False, reshape_Input = False)
 using_conv = type_of_eksperiment['using_conv']
 Using_image_dataset = type_of_eksperiment['Using_image_dataset']
-
+reshape_Input = type_of_eksperiment["reshape_Input"]
 #normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
@@ -39,7 +39,7 @@ if using_conv:
     conv_channels = 8
     k_size = 3 #must be 3, 5, 7 etc i e. not even numbers the first conv layer has K size + 2
 
-    p_dnns = [nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size+2, padding = int((k_size+2-1)/2)), nn.ReLU(),
+    p_dnns = [nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
                             nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
                             nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
                             nn.Flatten(),
@@ -47,7 +47,7 @@ if using_conv:
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, 2 * D)) for _ in range(T-1)]
-    decoder_net = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size+2, padding = int((k_size+2-1)/2)), nn.ReLU(),
+    decoder_net = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
                                 nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
                                 nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
                                 nn.Flatten(),
@@ -117,26 +117,28 @@ class DDGM(nn.Module):
         zs = [self.reparameterization_gaussian_diffusion(x, 0)]
 
         for i in range(1, self.T):
-            zs.append(self.reparameterization_gaussian_diffusion(zs[-1], i))
+            zs.append(self.reparameterization_gaussian_diffusion(zs[-1], i)) #bemærk zs[-1] altså vi adder støj til sidste iteration
 
         # =====
         # backward diffusion
         mus = []
         log_vars = []
 
-        for i in range(len(self.p_dnns) - 1, -1, -1):
+        for i in range(len(self.p_dnns) - 1, -1, -1): #bemærk vi går i den negative retning 3, 2, 1, 0
             h = self.p_dnns[i](zs[i+1])
-            mu_i, log_var_i = torch.chunk(h, 2, dim=1)
+            mu_i, log_var_i = torch.chunk(h, 2, dim=-1)
             mus.append(mu_i)
             log_vars.append(log_var_i)
 
         mu_x = self.decoder_net(zs[0])
-
+        if using_conv:
+            _shape = x.shape
+            x = x.reshape((batch_size, _shape[1], _shape[2]*_shape[3]))
         # =====ELBO
-        # RE
+        # RE        #loss for reconstruction of final layer p(X|Z)
         RE = log_standard_normal(x - mu_x).sum(-1)
 
-        # KL
+        # KL        #the KL divergence of each layer ie. E[log(q(Z) / p(Z))]
         KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.beta) * zs[-1], torch.log(self.beta)) - log_standard_normal(zs[-1])).sum(-1)
 
         for i in range(len(mus)):
@@ -320,7 +322,6 @@ def test(model, test_loader, nll_val):
     samples_generated(result_dir + name, test_loader, extra_name='FINAL')
     samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
 
-
     #the following is just a convoluted way of saving the model
     model.eval()
     with torch.no_grad():
@@ -333,12 +334,6 @@ def test(model, test_loader, nll_val):
 
 
 
-
-
-
-
-
-
 if __name__ == "__main__":
 
     transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
@@ -348,14 +343,13 @@ if __name__ == "__main__":
         val_data = DataImage(mode='val')
         test_data = DataImage(mode='test')
     else:
-        train_data = Digits(mode='train', transforms=transforms)
-        val_data = Digits(mode='val', transforms=transforms)
-        test_data = Digits(mode='test', transforms=transforms)
+        train_data = Digits(mode='train', transforms=transforms, reshape = reshape_Input)
+        val_data = Digits(mode='val', transforms=transforms, reshape = reshape_Input)
+        test_data = Digits(mode='test', transforms=transforms, reshape = reshape_Input)
 
     training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
-
 
     name = 'Diffusion' + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
     result_dir = 'Results/' + name + '/'

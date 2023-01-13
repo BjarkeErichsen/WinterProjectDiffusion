@@ -37,19 +37,19 @@ if Using_image_dataset:
 #networks:
 if using_conv:
     conv_channels = 8
-    k_size = 3 #must be 3, 5, 7 etc i e. not even numbers the first conv layer has K size + 2
+    k_size = 3 #must be 3, 5, 7 etc i e. not even number
 
-    p_dnns = [nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size+2, padding = int((k_size+2-1)/2)), nn.ReLU(),
-                            nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
-                            nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
+    p_dnns = [nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
+                            nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
+                            nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
                             nn.Flatten(),
                             nn.Linear(512, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, 2 * D)) for _ in range(T-1)]
-    decoder_net = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size+2, padding = int((k_size+2-1)/2)), nn.ReLU(),
-                                nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
-                                nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
+    decoder_net = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
+                                nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
+                                nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
                                 nn.Flatten(),
                                 nn.Linear(512, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
@@ -102,12 +102,13 @@ class DDGM(nn.Module):
 
         self.beta = torch.FloatTensor([beta])
 
+    #zt <- mu and var <- network(zt+1)
     @staticmethod
     def reparameterization(mu, log_var):
         std = torch.exp(0.5*log_var)
         eps = torch.randn_like(std)
         return mu + std * eps
-
+    #Used for foward diffusion
     def reparameterization_gaussian_diffusion(self, x, i):
         return torch.sqrt(1. - self.beta) * x + torch.sqrt(self.beta) * torch.randn_like(x)
 
@@ -152,6 +153,7 @@ class DDGM(nn.Module):
 
         return loss
 
+    # sample bakward diffusion from random start
     def sample(self, batch_size=64):
         z = torch.randn([batch_size, self.D])
         if using_conv:
@@ -168,6 +170,7 @@ class DDGM(nn.Module):
 
         return mu_x
 
+    #forward diffusion
     def sample_diffusion(self, x):
         zs = [self.reparameterization_gaussian_diffusion(x, 0)]
 
