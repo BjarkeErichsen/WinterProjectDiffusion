@@ -11,6 +11,7 @@ import torchvision.transforms as tt
 from DataLoadingAndPrep import Digits
 from FredeDataLoader import DataImage
 from datetime import datetime
+import wandb
 
 # input eksperiment type
 type_of_eksperiment = dict(using_conv=True, Using_image_dataset=False, reshape_Input=True)
@@ -26,7 +27,7 @@ T = 5  # number of steps
 beta = 0.8
 lr = 1e-4  # 1e-4 # learning rate
 num_epochs = 500  # max. number of epochs
-max_patience = 40  # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+max_patience = 3  # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
 
 # tilføjede hyperparametre
@@ -170,8 +171,7 @@ class DDGM(nn.Module):
         zs = [self.reparameterization_gaussian_diffusion(x, 0)]
 
         for i in range(1, self.T):
-            zs.append(self.reparameterization_gaussian_diffusion(zs[-1],
-                                                                 i))  # bemærk zs[-1] altså vi adder støj til sidste iteration
+            zs.append(self.reparameterization_gaussian_diffusion(zs[-1], i))  # bemærk zs[-1] altså vi adder støj til sidste iteration
 
         # =====
         # backward diffusion
@@ -238,24 +238,21 @@ class DDGM(nn.Module):
 
         return zs[-1]
 
-
-def evaluation(test_loader, name=None, model_best=None, epoch=None):
+def evaluation(test_loader, model, name=None, epoch=None, doing_final_test = False):
     # EVALUATION
-    if model_best is None:
-        # load best performing model
-        model_best = torch.load(name + '.model')
-    model_best.eval()
+    model.eval()
     loss = 0.
     N = 0.
     for indx_batch, test_batch in enumerate(test_loader):
         if using_conv:
             test_batch = torch.unsqueeze(test_batch, 1)  # Bjarke added this
 
-        loss_t = model_best.forward(test_batch, reduction='sum')
+        loss_t = model.forward(test_batch, reduction='sum')
         loss = loss + loss_t.item()
         N = N + test_batch.shape[0]
     loss = loss / N
-
+    if not doing_final_test:
+        wandb.log({"validation loss": loss}, step = epoch)
     if epoch is None:
         print(f'FINAL LOSS: nll={loss}')
     else:
@@ -263,11 +260,12 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
 
     return loss
 
-
-def training(name, max_patience, num_epochs, model, optimizer, training_loader, val_loader):
+def training(name, max_patience, num_epochs, model, optimizer, training_loader, val_loader, config=None):
     nll_val = []
     best_nll = 1000.
     patience = 0
+
+    wandb.watch(model, log="all", log_freq=10)
 
     # Main loop
     for e in range(num_epochs):
@@ -281,9 +279,11 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
+            if (indx_batch+1) %100 == 0:
+                train_log(loss, indx_batch, e)
 
         # Validation
-        loss_val = evaluation(val_loader, model_best=model, epoch=e)
+        loss_val = evaluation(val_loader, model, epoch=e)
         nll_val.append(loss_val)  # save for plotting
 
         if e == 0:
@@ -291,12 +291,10 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
             best_nll = loss_val
         else:
             if loss_val < best_nll:
-                torch.save(model, name + '.model')
-                print('new best and saved')
+                model_best = model
                 best_nll = loss_val
                 patience = 0
-
-                samples_generated(name, val_loader, extra_name="_epoch_" + str(e))
+                samples_generated(name, val_loader, model, extra_name="_epoch_" + str(e))
             else:
                 patience = patience + 1
 
@@ -305,8 +303,7 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
 
     nll_val = np.asarray(nll_val)
 
-    return nll_val
-
+    return nll_val, model_best
 
 # sample a real image
 def samples_real(name, test_loader):
@@ -323,17 +320,13 @@ def samples_real(name, test_loader):
 
     plt.savefig(name + '_real_images.pdf', bbox_inches='tight')
     plt.close()
-
-
 # sample from backward diffusion that are moved to results
-def samples_generated(name, data_loader, extra_name=''):
+def samples_generated(name, data_loader, model, extra_name=''):
     # GENERATIONS-------
-    model_best = torch.load(name + '.model')
-    model_best.eval()
 
     num_x = 4
     num_y = 4
-    x = model_best.sample(batch_size=num_x * num_y)
+    x = model.sample(batch_size=num_x * num_y)
     x = x.detach().numpy()
 
     fig, ax = plt.subplots(num_x, num_y)
@@ -344,8 +337,6 @@ def samples_generated(name, data_loader, extra_name=''):
 
     plt.savefig(name + '_generated_images' + extra_name + '.pdf', bbox_inches='tight')
     plt.close()
-
-
 # sample forward diffusion
 def samples_diffusion(name, data_loader, extra_name=''):
     x = next(iter(data_loader))
@@ -367,8 +358,6 @@ def samples_diffusion(name, data_loader, extra_name=''):
 
     plt.savefig(name + '_generated_diffusion' + extra_name + '.pdf', bbox_inches='tight')
     plt.close()
-
-
 # plot of nll = negative log likelihood, we of course want to minimize negative log likelihood
 def plot_curve(name, nll_val):
     plt.plot(np.arange(len(nll_val)), nll_val, linewidth='3')
@@ -378,30 +367,39 @@ def plot_curve(name, nll_val):
     plt.close()
 
 
-def final_test_and_saving(model, test_loader, nll_val):
+def final_test_and_saving(best_model, test_loader, nll_val):
+
     # Final evaluation
-    test_loss = evaluation(name=result_dir + name, test_loader=test_loader)
+    test_loss = evaluation(test_loader, best_model, name=result_dir + name, doing_final_test = True)
+    wandb.log({"test loss": test_loss})
+    """    
     f = open(result_dir + name + '_test_loss.txt', "w")
     f.write(str(test_loss))
     f.close()
 
-    samples_real(result_dir + name, test_loader)
+    #samples_real(result_dir + name, test_loader)
     plot_curve(result_dir + name, nll_val)
-
     # We generate a sample whenever we encounter a NEW BEST
-    samples_generated(result_dir + name, test_loader, extra_name='FINAL')
+    samples_generated(result_dir + name, test_loader, model, extra_name='FINAL')
     samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
-
+    """
     # the following is just a convoluted way of saving the model
-    model.eval()
+    best_model.eval()
     with torch.no_grad():
         for indx_batch, test_batch in enumerate(test_loader):
             if using_conv:
                 test_batch = torch.unsqueeze(test_batch, 1)  # Bjarke added this
             dummy_input = test_batch
-            outputs = model(test_batch)
+            outputs = best_model(test_batch)
             break
+    torch.onnx.export(best_model, dummy_input, "model.onnx")
+    wandb.save("model.onnx")        
 
+
+def train_log(loss, example_ct, epoch):
+    loss = float(loss)
+
+    wandb.log({"epoch": epoch, "loss":loss}, step=example_ct)
 
 if __name__ == "__main__":
 
@@ -426,11 +424,23 @@ if __name__ == "__main__":
     if not (os.path.exists(result_dir)):
         os.makedirs(result_dir)
 
-    model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
-    optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
-    nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model,
-                       optimizer=optimizer,
-                       training_loader=training_loader, val_loader=val_loader)
 
-    final_test_and_saving(model, test_loader, nll_val)
+    hyperparameters =  {'T': 5, 'M': 256}
+    """
+    hyperparameters["Using_image_dataset"] = Using_image_dataset
+    hyperparameters["using_conv"] = using_conv
+    hyperparameters["reshape_Input"]   = reshape_Input
+    """
+    with wandb.init(project = "benis-pytorch", config = hyperparameters):
+        config = wandb.config
+        T = config["T"]
+        M = config["M"]
+
+        model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
+        optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
+        nll_val, model_best = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model,
+                           optimizer=optimizer,
+                           training_loader=training_loader, val_loader=val_loader, config = config)
+
+        final_test_and_saving(model_best, test_loader, nll_val)
 
