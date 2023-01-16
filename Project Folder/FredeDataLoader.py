@@ -7,7 +7,7 @@ from PIL import Image  # used to load TIF file format.
 
 
 class DataImage(Dataset):
-    def __init__(self, mode='train'):
+    def __init__(self, mode='train', flatten = True):
         #image_dir = path to folder of folders of images
         image_dir = r"C:\Users\Bbjar\OneDrive\Skrivebord\WinterProjectDiffusion\SingleCellDataset\Dataset"
         self.directory_of_all_image_paths = []
@@ -22,7 +22,7 @@ class DataImage(Dataset):
             self.directory_of_all_image_paths = self.directory_of_all_image_paths[int(self.length*0.8):int(self.length*0.9)]
         else:
             self.directory_of_all_image_paths = self.directory_of_all_image_paths[int(self.length*0.9):int(self.length)]
-
+        self.flatten = flatten
     def __len__(self):
         return len(self.directory_of_all_image_paths)
 
@@ -31,15 +31,18 @@ class DataImage(Dataset):
         image_path = self.directory_of_all_image_paths[idx]
         image = np.load(image_path)  # Loading image with PIL
         convert_image = image.astype("float32")  # Converting from uint16 to int16
-        np_image = convert_image.ravel()
+
         # tensor_trans = torch.from_numpy(np_image)  # Transforming numpy image to Pytorch tensor
         # tensor_image = tensor_trans.permute(2, 0, 1)  # changing from shape [68, 68, 3] to [3, 68, 68] as torch expect
+        if self.flatten:
+            np_image = convert_image.ravel()
+        np_image = convert_image
         return np_image
 
 
 if __name__ == "__main__":
     #path is path to folder
-    dataset = DataImage() # takes either .npy or .tiff files
+    dataset = DataImage(flatten=False) # takes either .npy or .tiff files
 
 
     # Spitting the loaded dataset into train, test and validation sets.

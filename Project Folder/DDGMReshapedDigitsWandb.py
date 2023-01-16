@@ -14,7 +14,7 @@ from datetime import datetime
 import wandb
 
 # input eksperiment type
-type_of_eksperiment = dict(using_conv=True, Using_image_dataset=False, reshape_Input=True)
+type_of_eksperiment = dict(using_conv=False, Using_image_dataset=False, reshape_Input=False)
 using_conv = type_of_eksperiment['using_conv']
 Using_image_dataset = type_of_eksperiment['Using_image_dataset']
 reshape_Input = type_of_eksperiment["reshape_Input"]
@@ -116,7 +116,6 @@ else:
                                 nn.Linear(M * 2, M * 2), nn.LeakyReLU(),
                                 nn.Linear(M * 2, M * 2), nn.LeakyReLU(),
                                 nn.Linear(M * 2, D), nn.Tanh())
-
 
 # helper functions
 def log_normal_diag(x, mu, log_var, reduction=None, dim=None):
@@ -294,6 +293,7 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
                 model_best = model
                 best_nll = loss_val
                 patience = 0
+                print("New best")
                 samples_generated(name, val_loader, model, extra_name="_epoch_" + str(e))
             else:
                 patience = patience + 1
@@ -392,9 +392,9 @@ def final_test_and_saving(best_model, test_loader, nll_val):
             dummy_input = test_batch
             outputs = best_model(test_batch)
             break
-    torch.onnx.export(best_model, dummy_input, "model.onnx")
-    wandb.save("model.onnx")        
-
+    #torch.onnx.export(best_model, dummy_input, "model.onnx")
+    #wandb.save("model.onnx")
+    #torch.save(best_model,  name + '.model')
 
 def train_log(loss, example_ct, epoch):
     loss = float(loss)
@@ -410,16 +410,16 @@ if __name__ == "__main__":
         val_data = DataImage(mode='val')
         test_data = DataImage(mode='test')
     else:
-        train_data = Digits(mode='train', transforms=transforms, reshape=reshape_Input)
-        val_data = Digits(mode='val', transforms=transforms, reshape=reshape_Input)
-        test_data = Digits(mode='test', transforms=transforms, reshape=reshape_Input)
+        train_data = Digits(mode='train', transforms = transforms,  reshape=reshape_Input)
+        val_data = Digits(mode='val', transforms = transforms, reshape=reshape_Input)
+        test_data = Digits(mode='test',transforms = transforms, reshape=reshape_Input)
 
     training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-    name = 'Diffusion' + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(
-        beta) + '_' + 'M_' + str(M)
+    name = 'ddmg' + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(
+        beta) + '_' + 'M_' + str(M) + "Wandb"
     result_dir = 'Results/' + name + '/'
     if not (os.path.exists(result_dir)):
         os.makedirs(result_dir)
@@ -431,7 +431,7 @@ if __name__ == "__main__":
     hyperparameters["using_conv"] = using_conv
     hyperparameters["reshape_Input"]   = reshape_Input
     """
-    with wandb.init(project = "benis-pytorch", config = hyperparameters):
+    with wandb.init(project = "benitto-pytorch", config = hyperparameters):
         config = wandb.config
         T = config["T"]
         M = config["M"]
