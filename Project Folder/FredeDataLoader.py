@@ -36,7 +36,9 @@ class DataImage(Dataset):
         # tensor_image = tensor_trans.permute(2, 0, 1)  # changing from shape [68, 68, 3] to [3, 68, 68] as torch expect
         if self.flatten:
             np_image = convert_image.ravel()
-        np_image = convert_image
+        else:
+            np_image = convert_image
+            np_image = np.swapaxes(np_image,0,2)
         return np_image
 
 

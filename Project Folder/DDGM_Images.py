@@ -13,10 +13,8 @@ from FredeDataLoader import DataImage
 from datetime import datetime
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = True, Using_image_dataset = True, reshape_Input = True, flatten = False)
+type_of_eksperiment = dict(using_conv = True, flatten = False)
 using_conv = type_of_eksperiment['using_conv']
-Using_image_dataset = type_of_eksperiment['Using_image_dataset']
-reshape_Input = type_of_eksperiment["reshape_Input"]
 flatten = type_of_eksperiment["flatten"]
 #normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
@@ -29,11 +27,10 @@ lr = 1e-4 #1e-4 # learning rate
 num_epochs = 500 # max. number of epochs
 max_patience = 40 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
-channels = 1
+
 #tilføjede hyperparametre
-if Using_image_dataset:
-    D = 13872
-    channels = 3
+D = 13872
+channels = 3
 #networks:
 if using_conv:
     conv_channels = 8
@@ -76,7 +73,7 @@ if using_conv:
         nn.MaxPool2d(2, 2),
 
         nn.Flatten(),
-        nn.Linear(256, 1024),
+        nn.Linear(16384, 1024),
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
@@ -102,7 +99,7 @@ if using_conv:
         nn.MaxPool2d(2, 2),
 
         nn.Flatten(),
-        nn.Linear(256, 1024),
+        nn.Linear(16384, 1024),
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
@@ -186,9 +183,9 @@ class DDGM(nn.Module):
         mu_x = self.decoder_net(zs[0])
         if using_conv:
             _shape = x.shape
-            x = x.reshape((_shape[0], _shape[1], _shape[2]*_shape[3]))
+            x = x.reshape((_shape[0], _shape[1]*_shape[2]*_shape[3]))
             for i in range(len(zs)):
-                zs[i] = zs[i].reshape((_shape[0], _shape[1], _shape[2]*_shape[3]))
+                zs[i] = zs[i].reshape((_shape[0], _shape[1]*_shape[2]*_shape[3]))
 
         # =====ELBO
         # RE        #loss for reconstruction of final layer p(X|Z)
@@ -199,8 +196,8 @@ class DDGM(nn.Module):
 
         for i in range(len(mus)):
             KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.beta) * zs[i], torch.log(self.beta)) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
-
             KL = KL + KL_i
+
         # KL, RE
         # Final ELBO
         if reduction == 'sum':
@@ -214,14 +211,14 @@ class DDGM(nn.Module):
         z = torch.randn([batch_size, self.D])
         if using_conv:
             z = torch.unsqueeze(z, 1)  # Bjarke added this
-            z = z.reshape((z.shape[0], 1, 8, 8))
+            z = z.reshape((z.shape[0], 3, 68, 68))
         for i in range(len(self.p_dnns) - 1, -1, -1):
             h = self.p_dnns[i](z)
             mu_i, log_var_i = torch.chunk(h, 2, dim=-1) #splits the tensor into 2
             z = self.reparameterization(torch.tanh(mu_i), log_var_i)
             if using_conv:
                 z = torch.unsqueeze(z, 1)  # Bjarke added this
-                z = z.reshape((z.shape[0], 1, 8, 8))
+                z = z.reshape((z.shape[0], 3, 68, 68))
 
         mu_x = self.decoder_net(z)
 
@@ -269,14 +266,13 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
         # TRAINING
         model.train()
         for indx_batch, batch in enumerate(training_loader):
-            if using_conv:
-                batch = torch.unsqueeze(batch, 1)  # Bjarke added this
-
             loss = model.forward(batch)
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
-
+            print(indx_batch)
+            if indx_batch>3000:
+                break
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
         nll_val.append(loss_val)  # save for plotting
@@ -395,14 +391,9 @@ if __name__ == "__main__":
 
     transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
 
-    if Using_image_dataset:
-        train_data = DataImage(mode='train', flatten = flatten)
-        val_data = DataImage(mode='val', flatten = flatten)
-        test_data = DataImage(mode='test', flatten = flatten)
-    else:
-        train_data = Digits(mode='train', transforms=transforms, reshape = reshape_Input)
-        val_data = Digits(mode='val', transforms=transforms, reshape = reshape_Input)
-        test_data = Digits(mode='test', transforms=transforms, reshape = reshape_Input)
+    train_data = DataImage(mode='train', flatten = flatten)
+    val_data = DataImage(mode='val', flatten = flatten)
+    test_data = DataImage(mode='test', flatten = flatten)
 
     training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
