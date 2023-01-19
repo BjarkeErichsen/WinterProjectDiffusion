@@ -13,7 +13,7 @@ from FredeDataLoader import DataImage
 from datetime import datetime
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = True, flatten = False)
+type_of_eksperiment = dict(using_conv = False, flatten = False)
 using_conv = type_of_eksperiment['using_conv']
 flatten = type_of_eksperiment["flatten"]
 #normal hyperparams

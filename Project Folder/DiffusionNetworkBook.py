@@ -13,9 +13,8 @@ from FredeDataLoader import DataImage
 from datetime import datetime
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = True, Using_image_dataset = False)
+type_of_eksperiment = dict(using_conv = False)
 using_conv = type_of_eksperiment['using_conv']
-Using_image_dataset = type_of_eksperiment['Using_image_dataset']
 
 #normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
@@ -30,8 +29,7 @@ max_patience = 40 # an early stopping is used, if training doesn't improve for l
 batch_size = 32
 
 #tilføjede hyperparametre
-if Using_image_dataset:
-    D = 13872
+
 
 
 #networks:
@@ -58,10 +56,12 @@ if using_conv:
 else:
     p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
+                            nn.Dropout(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, 2 * D)) for _ in range(T-1)]
     decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                                nn.Dropout(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, D), nn.Tanh())
 
@@ -345,15 +345,9 @@ def test(model, test_loader, nll_val):
 if __name__ == "__main__":
 
     transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
-
-    if Using_image_dataset:
-        train_data = DataImage(mode='train')
-        val_data = DataImage(mode='val')
-        test_data = DataImage(mode='test')
-    else:
-        train_data = Digits(mode='train', transforms=transforms)
-        val_data = Digits(mode='val', transforms=transforms)
-        test_data = Digits(mode='test', transforms=transforms)
+    train_data = Digits(mode='train', transforms=transforms)
+    val_data = Digits(mode='val', transforms=transforms)
+    test_data = Digits(mode='test', transforms=transforms)
 
     training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
