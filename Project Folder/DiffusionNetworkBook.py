@@ -2,15 +2,11 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-from sklearn.datasets import load_digits
-from sklearn import datasets
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import torch.nn as nn
-import torch.nn.functional as F
 import torchvision.transforms as tt
 from DataLoadingAndPrep import Digits
 from FredeDataLoader import DataImage
-from datetime import datetime
 
 #input eksperiment type
 type_of_eksperiment = dict(using_conv = False)
@@ -322,23 +318,6 @@ def test(model, test_loader, nll_val):
     # We generate a sample whenever we encounter a NEW BEST
     samples_generated(result_dir + name, test_loader, extra_name='FINAL')
     samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
-
-
-    #the following is just a convoluted way of saving the model
-    model.eval()
-    with torch.no_grad():
-        for indx_batch, test_batch in enumerate(test_loader):
-            if using_conv:
-                test_batch = torch.unsqueeze(test_batch, 1) #Bjarke added this
-            dummy_input = test_batch
-            outputs = model(test_batch)
-            break
-
-
-
-
-
-
 
 
 

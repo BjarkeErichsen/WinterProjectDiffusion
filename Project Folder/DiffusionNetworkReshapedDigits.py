@@ -2,22 +2,17 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-from sklearn.datasets import load_digits
-from sklearn import datasets
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import torch.nn as nn
-import torch.nn.functional as F
 import torchvision.transforms as tt
 from DataLoadingAndPrep import Digits
 from FredeDataLoader import DataImage
-from datetime import datetime
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = True, Using_image_dataset = True, reshape_Input = True, flatten = False)
+type_of_eksperiment = dict(using_conv = False, Using_image_dataset = False, reshape_Input = False)
 using_conv = type_of_eksperiment['using_conv']
 Using_image_dataset = type_of_eksperiment['Using_image_dataset']
 reshape_Input = type_of_eksperiment["reshape_Input"]
-flatten = type_of_eksperiment["flatten"]
 #normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
@@ -25,20 +20,20 @@ D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
 T = 5  #number of steps
 beta = 0.8
-lr = 1e-4 #1e-4 # learning rate
+lr = 1e-3 #1e-4 # learning rate
 num_epochs = 500 # max. number of epochs
 max_patience = 40 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
-channels = 1
+
 #tilføjede hyperparametre
 if Using_image_dataset:
     D = 13872
-    channels = 3
+
 #networks:
 if using_conv:
     conv_channels = 8
     k_size = 3 #must be 3, 5, 7 etc i e. not even numbers the first conv layer has K size + 2
-    """
+
     p_dnns = [nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
                             nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
                             nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
@@ -55,58 +50,6 @@ if using_conv:
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, D), nn.Tanh())
-    """
-    p_dnns = [nn.Sequential(
-        nn.Conv2d(channels, 32, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-
-        nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-
-        nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-
-        nn.Flatten(),
-        nn.Linear(256, 1024),
-        nn.ReLU(),
-        nn.Linear(1024, 512),
-        nn.ReLU(),
-        nn.Linear(512, 2*D)) for _ in range(T-1)]
-
-    decoder_net = nn.Sequential(
-        nn.Conv2d(channels, 32, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-
-        nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-
-        nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-
-        nn.Flatten(),
-        nn.Linear(256, 1024),
-        nn.ReLU(),
-        nn.Linear(1024, 512),
-        nn.ReLU(),
-        nn.Linear(512, D))
 else:
     p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
@@ -182,14 +125,10 @@ class DDGM(nn.Module):
             mus.append(mu_i)
             log_vars.append(log_var_i)
 
-
         mu_x = self.decoder_net(zs[0])
         if using_conv:
             _shape = x.shape
-            x = x.reshape((_shape[0], _shape[1], _shape[2]*_shape[3]))
-            for i in range(len(zs)):
-                zs[i] = zs[i].reshape((_shape[0], _shape[1], _shape[2]*_shape[3]))
-
+            x = x.reshape((batch_size, _shape[1], _shape[2]*_shape[3]))
         # =====ELBO
         # RE        #loss for reconstruction of final layer p(X|Z)
         RE = log_standard_normal(x - mu_x).sum(-1)
@@ -214,14 +153,13 @@ class DDGM(nn.Module):
         z = torch.randn([batch_size, self.D])
         if using_conv:
             z = torch.unsqueeze(z, 1)  # Bjarke added this
-            z = z.reshape((z.shape[0], 1, 8, 8))
+
         for i in range(len(self.p_dnns) - 1, -1, -1):
             h = self.p_dnns[i](z)
-            mu_i, log_var_i = torch.chunk(h, 2, dim=-1) #splits the tensor into 2
+            mu_i, log_var_i = torch.chunk(h, 2, dim=1) #splits the tensor into 2
             z = self.reparameterization(torch.tanh(mu_i), log_var_i)
             if using_conv:
                 z = torch.unsqueeze(z, 1)  # Bjarke added this
-                z = z.reshape((z.shape[0], 1, 8, 8))
 
         mu_x = self.decoder_net(z)
 
@@ -365,7 +303,7 @@ def plot_curve(name, nll_val):
     plt.savefig(name + '_nll_val_curve.pdf', bbox_inches='tight')
     plt.close()
 
-def final_test_and_saving(model, test_loader, nll_val):
+def test(model, test_loader, nll_val):
     # Final evaluation
     test_loss = evaluation(name=result_dir + name, test_loader=test_loader)
     f = open(result_dir + name + '_test_loss.txt', "w")
@@ -396,9 +334,9 @@ if __name__ == "__main__":
     transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
 
     if Using_image_dataset:
-        train_data = DataImage(mode='train', flatten = flatten)
-        val_data = DataImage(mode='val', flatten = flatten)
-        test_data = DataImage(mode='test', flatten = flatten)
+        train_data = DataImage(mode='train')
+        val_data = DataImage(mode='val')
+        test_data = DataImage(mode='test')
     else:
         train_data = Digits(mode='train', transforms=transforms, reshape = reshape_Input)
         val_data = Digits(mode='val', transforms=transforms, reshape = reshape_Input)
@@ -418,8 +356,4 @@ if __name__ == "__main__":
     nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model,
                        optimizer=optimizer,
                        training_loader=training_loader, val_loader=val_loader)
-
-
-    final_test_and_saving(model, test_loader, nll_val)
-
-
+    test(model, test_loader, nll_val)
