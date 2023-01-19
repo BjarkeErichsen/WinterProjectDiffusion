@@ -13,9 +13,9 @@ from FredeDataLoader import DataImage
 from datetime import datetime
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = False, flatten = False)
+type_of_eksperiment = dict(using_conv = True)
 using_conv = type_of_eksperiment['using_conv']
-flatten = type_of_eksperiment["flatten"]
+flatten = not using_conv
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 #normal hyperparams
@@ -26,8 +26,8 @@ M = 256  # the number of neurons in scale (s) and translation (t) nets
 T = 5  #number of steps
 beta = 0.8
 lr = 1e-4 #1e-4 # learning rate
-num_epochs = 500 # max. number of epochs
-max_patience = 40 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+num_epochs = 6 # max. number of epochs
+max_patience = 6 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
 
 #tilføjede hyperparametre
@@ -243,8 +243,8 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
     loss = 0.
     N = 0.
     for indx_batch, test_batch in enumerate(test_loader):
-        if using_conv:
-            test_batch = torch.unsqueeze(test_batch, 1) #Bjarke added this
+        #if using_conv:
+            #test_batch = torch.unsqueeze(test_batch, 1) #Bjarke added this
         test_batch = test_batch.to(device=device)
 
         loss_t = model_best.forward(test_batch, reduction='sum')
@@ -269,11 +269,13 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
         # TRAINING
         model.train()
         for indx_batch, batch in enumerate(training_loader):
+            batch = batch.to(device = device)
             loss = model.forward(batch)
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
-            print(indx_batch)
+            if indx_batch % 50 == 0:
+                print(indx_batch)
             if indx_batch>3000:
                 break
         # Validation
@@ -310,7 +312,8 @@ def samples_real(name, test_loader):
 
     fig, ax = plt.subplots(num_x, num_y)
     for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(x[i], (8, 8))
+        plottable_image = np.reshape(x[i], (68, 68, 3))
+        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min()) * 255
         ax.imshow(plottable_image, cmap='gray')
         ax.axis('off')
 
@@ -330,7 +333,8 @@ def samples_generated(name, data_loader, extra_name=''):
 
     fig, ax = plt.subplots(num_x, num_y)
     for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(x[i], (8, 8))
+        plottable_image = np.reshape(x[i], (68, 68, 3))
+        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min()) * 255
         ax.imshow(plottable_image, cmap='gray')
         ax.axis('off')
 
@@ -352,7 +356,8 @@ def samples_diffusion(name, data_loader, extra_name=''):
 
     fig, ax = plt.subplots(num_x, num_y)
     for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(z[i], (8, 8))
+        plottable_image = np.reshape(z[i], (68, 68, 3))
+        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min()) * 255
         ax.imshow(plottable_image, cmap='gray')
         ax.axis('off')
 
@@ -365,7 +370,6 @@ def plot_curve(name, nll_val):
     plt.ylabel('nll')
     plt.savefig(name + '_nll_val_curve.pdf', bbox_inches='tight')
     plt.close()
-
 def final_test_and_saving(model, test_loader, nll_val):
     # Final evaluation
     test_loss = evaluation(name=result_dir + name, test_loader=test_loader)
@@ -380,9 +384,6 @@ def final_test_and_saving(model, test_loader, nll_val):
     samples_generated(result_dir + name, test_loader, extra_name='FINAL')
     samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
 
-
-
-
 if __name__ == "__main__":
 
     transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
@@ -395,7 +396,7 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-    name = 'Diffusion' + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
+    name = 'Diffusion_CELL_IMAGES' + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
     result_dir = 'Results/' + name + '/'
     if not (os.path.exists(result_dir)):
         os.makedirs(result_dir)
