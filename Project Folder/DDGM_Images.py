@@ -16,6 +16,8 @@ from datetime import datetime
 type_of_eksperiment = dict(using_conv = False, flatten = False)
 using_conv = type_of_eksperiment['using_conv']
 flatten = type_of_eksperiment["flatten"]
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 #normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
@@ -43,7 +45,7 @@ if using_conv:
                             nn.Linear(512, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, 2 * D)) for _ in range(T-1)]
+                            nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
     decoder_net = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
                                 nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
                                 nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
@@ -51,7 +53,7 @@ if using_conv:
                                 nn.Linear(512, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, D), nn.Tanh())
+                                nn.Linear(M*2, D), nn.Tanh()).to(device=device)
     """
     p_dnns = [nn.Sequential(
         nn.Conv2d(channels, 32, kernel_size=3, padding=1),
@@ -77,7 +79,7 @@ if using_conv:
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
-        nn.Linear(512, 2*D)) for _ in range(T-1)]
+        nn.Linear(512, 2*D), nn.Tanh()).to(device=device) for _ in range(T-1)]
 
     decoder_net = nn.Sequential(
         nn.Conv2d(channels, 32, kernel_size=3, padding=1),
@@ -103,16 +105,16 @@ if using_conv:
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
-        nn.Linear(512, D))
+        nn.Linear(512, D), nn.Tanh()).to(device=device)
 else:
     p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, 2 * D)) for _ in range(T-1)]
+                            nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
     decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, D), nn.Tanh())
+                                nn.Linear(M*2, D), nn.Tanh()).to(device=device)
 
 
 #helper functions
@@ -149,7 +151,7 @@ class DDGM(nn.Module):
 
         self.T = T
 
-        self.beta = torch.FloatTensor([beta])
+        self.beta = torch.FloatTensor([beta]).to(device=device)
 
     @staticmethod
     def reparameterization(mu, log_var):
@@ -208,7 +210,7 @@ class DDGM(nn.Module):
         return loss
 
     def sample(self, batch_size=64):
-        z = torch.randn([batch_size, self.D])
+        z = torch.randn([batch_size, self.D]).to(device=device)
         if using_conv:
             z = torch.unsqueeze(z, 1)  # Bjarke added this
             z = z.reshape((z.shape[0], 3, 68, 68))
@@ -243,6 +245,7 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
     for indx_batch, test_batch in enumerate(test_loader):
         if using_conv:
             test_batch = torch.unsqueeze(test_batch, 1) #Bjarke added this
+        test_batch = test_batch.to(device=device)
 
         loss_t = model_best.forward(test_batch, reduction='sum')
         loss = loss + loss_t.item()
@@ -321,7 +324,8 @@ def samples_generated(name, data_loader, extra_name=''):
 
     num_x = 4
     num_y = 4
-    x = model_best.sample(batch_size=num_x * num_y)
+    x = model_best.sample(batch_size=num_x * num_y).cpu()
+
     x = x.detach().numpy()
 
     fig, ax = plt.subplots(num_x, num_y)
@@ -343,6 +347,7 @@ def samples_diffusion(name, data_loader, extra_name=''):
     num_x = 4
     num_y = 4
     z = model_best.sample_diffusion(x)
+    z = z.cpu()
     z = z.detach().numpy()
 
     fig, ax = plt.subplots(num_x, num_y)
@@ -375,15 +380,6 @@ def final_test_and_saving(model, test_loader, nll_val):
     samples_generated(result_dir + name, test_loader, extra_name='FINAL')
     samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
 
-    #the following is just a convoluted way of saving the model
-    model.eval()
-    with torch.no_grad():
-        for indx_batch, test_batch in enumerate(test_loader):
-            if using_conv:
-                test_batch = torch.unsqueeze(test_batch, 1) #Bjarke added this
-            dummy_input = test_batch
-            outputs = model(test_batch)
-            break
 
 
 
@@ -405,11 +401,12 @@ if __name__ == "__main__":
         os.makedirs(result_dir)
 
     model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
+    model = model.to(device=device)
+
     optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
     nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model,
                        optimizer=optimizer,
                        training_loader=training_loader, val_loader=val_loader)
-
 
     final_test_and_saving(model, test_loader, nll_val)
 

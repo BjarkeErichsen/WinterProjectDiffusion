@@ -9,9 +9,8 @@ from DataLoadingAndPrep import Digits
 from FredeDataLoader import DataImage
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = False)
+type_of_eksperiment = dict(using_conv = True)
 using_conv = type_of_eksperiment['using_conv']
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -43,7 +42,7 @@ if using_conv:
                             nn.Linear(512, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, 2 * D)) for _ in range(T-1)]
+                            nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
     decoder_net = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
                                 nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
                                 nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
@@ -51,18 +50,18 @@ if using_conv:
                                 nn.Linear(512, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, D), nn.Tanh())
+                                nn.Linear(M*2, D), nn.Tanh()).to(device=device)
 else:
     p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Dropout(),
                             nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, 2 * D)) for _ in range(T-1)]
+                            nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
     decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Dropout(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, D), nn.Tanh())
+                                nn.Linear(M*2, D), nn.Tanh()).to(device=device)
 
 
 #helper functions
@@ -99,7 +98,7 @@ class DDGM(nn.Module):
 
         self.T = T
 
-        self.beta = torch.FloatTensor([beta])
+        self.beta = torch.FloatTensor([beta]).to(device=device)
 
     #zt <- mu and var <- network(zt+1)
     @staticmethod
@@ -107,12 +106,14 @@ class DDGM(nn.Module):
         std = torch.exp(0.5*log_var)
         eps = torch.randn_like(std)
         return mu + std * eps
-    #Used for foward diffusion
+    #Used for foward diffusion, remember we need to ACTUALLY generate the noice when doing forward diffusion
     def reparameterization_gaussian_diffusion(self, x, i):
+
         return torch.sqrt(1. - self.beta) * x + torch.sqrt(self.beta) * torch.randn_like(x)
 
     def forward(self, x, reduction='avg'):
         # =====
+
         # forward difussion
         zs = [self.reparameterization_gaussian_diffusion(x, 0)]
 
@@ -130,7 +131,7 @@ class DDGM(nn.Module):
             mus.append(mu_i)
             log_vars.append(log_var_i)
 
-        mu_x = self.decoder_net(zs[0])
+        mu_x = self.decoder_net(zs[0].to(device=device))
 
         # =====ELBO
         # RE
@@ -154,7 +155,7 @@ class DDGM(nn.Module):
 
     # sample bakward diffusion from random start
     def sample(self, batch_size=64):
-        z = torch.randn([batch_size, self.D])
+        z = torch.randn([batch_size, self.D]).to(device=device)
         if using_conv:
             z = torch.unsqueeze(z, 1)  # Bjarke added this
 
@@ -189,6 +190,7 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
     for indx_batch, test_batch in enumerate(test_loader):
         if using_conv:
             test_batch = torch.unsqueeze(test_batch, 1) #Bjarke added this
+        test_batch = test_batch.to(device=device)
 
         loss_t = model_best.forward(test_batch, reduction='sum')
         loss = loss + loss_t.item()
@@ -207,6 +209,8 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
     best_nll = 1000.
     patience = 0
 
+    model = model.cuda()
+
     # Main loop
     for e in range(num_epochs):
         # TRAINING
@@ -214,7 +218,7 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
         for indx_batch, batch in enumerate(training_loader):
             if using_conv:
                 batch = torch.unsqueeze(batch, 1)  # Bjarke added this
-
+            batch = batch.to(device=device)
             loss = model.forward(batch)
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
@@ -268,7 +272,7 @@ def samples_generated(name, data_loader, extra_name=''):
 
     num_x = 4
     num_y = 4
-    x = model_best.sample(batch_size=num_x * num_y)
+    x = model_best.sample(batch_size=num_x * num_y).cpu()
     x = x.detach().numpy()
 
     fig, ax = plt.subplots(num_x, num_y)
@@ -281,7 +285,7 @@ def samples_generated(name, data_loader, extra_name=''):
     plt.close()
 #sample forward diffusion
 def samples_diffusion(name, data_loader, extra_name=''):
-    x = next(iter(data_loader))
+    x = next(iter(data_loader)).to(device=device)
 
     # GENERATIONS-------
     model_best = torch.load(name + '.model')
@@ -289,7 +293,9 @@ def samples_diffusion(name, data_loader, extra_name=''):
 
     num_x = 4
     num_y = 4
+
     z = model_best.sample_diffusion(x)
+    z = z.cpu()
     z = z.detach().numpy()
 
     fig, ax = plt.subplots(num_x, num_y)
@@ -327,6 +333,7 @@ def test(model, test_loader, nll_val):
 if __name__ == "__main__":
 
     transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
+
     train_data = Digits(mode='train', transforms=transforms)
     val_data = Digits(mode='val', transforms=transforms)
     test_data = Digits(mode='test', transforms=transforms)
@@ -335,13 +342,15 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-
     name = 'Diffusion' + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
     result_dir = 'Results/' + name + '/'
     if not (os.path.exists(result_dir)):
         os.makedirs(result_dir)
 
     model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
+
+    model = model.to(device=device)
+
     optimizer = torch.optim.Adamax([p for p in model.parameters() if p.requires_grad == True], lr=lr)
     nll_val = training(name=result_dir + name, max_patience=max_patience, num_epochs=num_epochs, model=model,
                        optimizer=optimizer,
