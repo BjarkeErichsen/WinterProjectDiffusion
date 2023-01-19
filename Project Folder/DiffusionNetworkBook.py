@@ -12,6 +12,9 @@ from FredeDataLoader import DataImage
 type_of_eksperiment = dict(using_conv = False)
 using_conv = type_of_eksperiment['using_conv']
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 #normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
