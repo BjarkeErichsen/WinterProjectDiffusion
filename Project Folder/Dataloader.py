@@ -14,7 +14,7 @@ class DataImage(Dataset):
         n = 5 # amount of images for subdirectory, each folder contains 259 files
         for root, dirs, files in os.walk(image_dir, topdown=True):
 
-            if small_dataset:
+            if small_dataset: # Allows for revising dataset size
                 for files in [f for f in files if f.endswith(".npy")][:n]:
                     self.directory_of_all_image_paths.append(os.path.join(root, files))
             else:
