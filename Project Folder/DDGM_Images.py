@@ -11,6 +11,8 @@ import torchvision.transforms as tt
 from DataLoadingAndPrep import Digits
 from FredeDataLoader import DataImage
 from datetime import datetime
+import datetime
+
 
 #input eksperiment type
 type_of_eksperiment = dict(using_conv = True)
@@ -18,13 +20,14 @@ using_conv = type_of_eksperiment['using_conv']
 flatten = not using_conv
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 #normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 4  #number of steps
-beta = 0.8
+T = 7  #number of steps
+beta = 0.4
 lr = 1e-4 #1e-4 # learning rate
 num_epochs = 1 # max. number of epochs
 max_patience = 3 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
@@ -307,13 +310,13 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
 #sample a real image
 def samples_real(name, test_loader):
     # REAL-------
-    num_x = 4
-    num_y = 4
+    num_x = 2
+    num_y = 2
     x = next(iter(test_loader)).detach().numpy()
 
     fig, ax = plt.subplots(num_x, num_y)
     for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(x[i], (68, 68, 3))
+        plottable_image = np.moveaxis(x[i], [0, 1, 2], [2, 0, 1])
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
         ax.imshow(plottable_image)
         ax.axis('off')
@@ -326,15 +329,15 @@ def samples_generated(name, data_loader, extra_name=''):
     model_best = torch.load(name + '.model')
     model_best.eval()
 
-    num_x = 4
-    num_y = 4
+    num_x = 2
+    num_y = 2
     x = model_best.sample(batch_size=num_x * num_y).cpu()
 
     x = x.detach().numpy()
 
     fig, ax = plt.subplots(num_x, num_y)
     for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(x[i], (68, 68, 3))
+        plottable_image = np.moveaxis(x[i].reshape((3, 68, 68)), [0, 1, 2], [2, 0, 1])
 
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
         ax.imshow(plottable_image)
@@ -350,15 +353,15 @@ def samples_diffusion(name, data_loader, extra_name=''):
     model_best = torch.load(name + '.model')
     model_best.eval()
 
-    num_x = 4
-    num_y = 4
+    num_x = 2
+    num_y = 2
     z = model_best.sample_diffusion(x)
     z = z.cpu()
     z = z.detach().numpy()
 
     fig, ax = plt.subplots(num_x, num_y)
     for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(x[i], (68, 68, 3))
+        plottable_image = np.moveaxis(z[i].reshape((3, 68, 68)), [0, 1, 2], [2, 0, 1])
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
         ax.imshow(plottable_image)
         ax.axis('off')
@@ -398,7 +401,10 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-    name = 'Diffusion_CELL_IMAGES' + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
+    import datetime
+    now = datetime.datetime.now()
+
+    name = 'Diffusion_CELL_IMAGES_' + "Hour_" + str(now.hour) + "_Min_" + str(now.minute) + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
     result_dir = 'Results/' + name + '/'
     if not (os.path.exists(result_dir)):
         os.makedirs(result_dir)
