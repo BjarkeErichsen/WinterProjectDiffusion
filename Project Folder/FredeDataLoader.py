@@ -7,7 +7,7 @@ from PIL import Image  # used to load TIF file format.
 
 
 class DataImage(Dataset):
-    def __init__(self, mode='train', flatten = True):
+    def __init__(self, mode='train', flatten = False):
         #image_dir = path to folder of folders of images
         image_dir = r"C:\Users\EG\OneDrive - Danmarks Tekniske Universitet\Skrivebord\Winter diffusion\SingleCellDataset\singh_cp_pipeline_singlecell_images"
         self.directory_of_all_image_paths = []
@@ -45,8 +45,9 @@ class DataImage(Dataset):
 if __name__ == "__main__":
     #path is path to folder
     dataset = DataImage(flatten=False) # takes either .npy or .tiff files
+    a = dataset.__getitem__(1)
 
-
+    a = np.swapaxes(np.swapaxes(a, 0, 1), 1, 2)
     # Spitting the loaded dataset into train, test and validation sets.
     train_size = int(0.8 * len(dataset))
     test_size = int(0.1 * len(dataset))

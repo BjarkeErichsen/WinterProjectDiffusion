@@ -23,11 +23,11 @@ PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 5  #number of steps
+T = 4  #number of steps
 beta = 0.8
 lr = 1e-4 #1e-4 # learning rate
-num_epochs = 6 # max. number of epochs
-max_patience = 6 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+num_epochs = 1 # max. number of epochs
+max_patience = 3 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
 
 #tilføjede hyperparametre
@@ -261,7 +261,7 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
 
 def training(name, max_patience, num_epochs, model, optimizer, training_loader, val_loader):
     nll_val = []
-    best_nll = 1000.
+    best_nll = 10**100
     patience = 0
 
     # Main loop
@@ -285,6 +285,7 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
         if e == 0:
             print('started')
             best_nll = loss_val
+            torch.save(model, name + '.model')
         else:
             if loss_val < best_nll:
                 torch.save(model, name + '.model')
@@ -313,8 +314,8 @@ def samples_real(name, test_loader):
     fig, ax = plt.subplots(num_x, num_y)
     for i, ax in enumerate(ax.flatten()):
         plottable_image = np.reshape(x[i], (68, 68, 3))
-        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min()) * 255
-        ax.imshow(plottable_image, cmap='gray')
+        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
+        ax.imshow(plottable_image)
         ax.axis('off')
 
     plt.savefig(name+'_real_images.pdf', bbox_inches='tight')
@@ -334,8 +335,9 @@ def samples_generated(name, data_loader, extra_name=''):
     fig, ax = plt.subplots(num_x, num_y)
     for i, ax in enumerate(ax.flatten()):
         plottable_image = np.reshape(x[i], (68, 68, 3))
-        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min()) * 255
-        ax.imshow(plottable_image, cmap='gray')
+
+        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
+        ax.imshow(plottable_image)
         ax.axis('off')
 
     plt.savefig(name + '_generated_images' + extra_name + '.pdf', bbox_inches='tight')
@@ -343,7 +345,7 @@ def samples_generated(name, data_loader, extra_name=''):
 #sample forward diffusion
 def samples_diffusion(name, data_loader, extra_name=''):
     x = next(iter(data_loader))
-
+    x = x.to(device=device)
     # GENERATIONS-------
     model_best = torch.load(name + '.model')
     model_best.eval()
@@ -356,9 +358,9 @@ def samples_diffusion(name, data_loader, extra_name=''):
 
     fig, ax = plt.subplots(num_x, num_y)
     for i, ax in enumerate(ax.flatten()):
-        plottable_image = np.reshape(z[i], (68, 68, 3))
-        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min()) * 255
-        ax.imshow(plottable_image, cmap='gray')
+        plottable_image = np.reshape(x[i], (68, 68, 3))
+        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
+        ax.imshow(plottable_image)
         ax.axis('off')
 
     plt.savefig(name + '_generated_diffusion' + extra_name + '.pdf', bbox_inches='tight')
