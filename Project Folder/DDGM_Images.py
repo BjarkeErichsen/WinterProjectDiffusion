@@ -27,12 +27,12 @@ EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
 T = 7  #number of steps
-beta = 0.4
 s = 0.008    #Larger s -> Less curved beta curve
 lr = 1e-4 #1e-4 # learning rate
 num_epochs = 1 # max. number of epochs
 max_patience = 2 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
-batch_size = 32
+batch_size = 32  #64 makes the machine run out of memory
+#beta = 0.4 not used
 
 #tilføjede hyperparametre
 D = 13872
@@ -292,7 +292,7 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
             optimizer.step()
             if indx_batch % 50 == 0:
                 print(indx_batch)
-            if indx_batch>200:
+            if indx_batch>50:
                 break
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
@@ -410,9 +410,6 @@ def final_test_and_saving(model, test_loader, nll_val):
     sample_all_diffusion_steps(result_dir, name, test_loader)
     sample_all_backward_mapping_steps(result_dir, name)
 
-
-
-
 def sample_all_diffusion_steps(result_dir, name, data_loader):
     x = next(iter(data_loader))[0]
     x = x.to(device=device)
@@ -433,7 +430,7 @@ def sample_all_diffusion_steps(result_dir, name, data_loader):
         plottable_image = np.moveaxis(z.reshape((3, 68, 68)), [0, 1, 2], [2, 0, 1])
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
 
-        plt.imshow(plottable_image, cmap='gray')
+        plt.imshow(plottable_image, cmap='rgb')
         plt.savefig(dir + '\Forward_Step' + str(i) + '.pdf')
         plt.close()
 
@@ -463,17 +460,22 @@ def sample_all_backward_mapping_steps(result_dir, name):
         z = z.detach().numpy()
         plottable_image = np.moveaxis(z.reshape((3, 68, 68)), [0, 1, 2], [2, 0, 1])
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
-        plt.imshow(plottable_image, cmap='gray')
+        plt.imshow(plottable_image, cmap='rgb')
         plt.savefig(dir + '\Backward_Step' + str(i) + '.pdf')
         plt.close()
 
 if __name__ == "__main__":
 
-    transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
 
-    train_data = DataImage(mode='train', flatten = flatten)
-    val_data = DataImage(mode='val', flatten = flatten)
-    test_data = DataImage(mode='test', flatten = flatten)
+    transforms = [lambda x: (x - 2448)/2101, lambda x: (x - 5744)/2364, lambda x: (x-3136) / 1401]  #standardization of images
+
+    train_data = DataImage(mode='train', flatten = flatten, transforms=transforms)
+    val_data = DataImage(mode='val', flatten = flatten, transforms= transforms)
+    test_data = DataImage(mode='test', flatten = flatten, transforms=transforms)
+
+    #train_data = DataImage(mode='train', flatten = flatten)
+    #val_data = DataImage(mode='val', flatten = flatten)
+    #test_data = DataImage(mode='test', flatten = flatten)
 
     training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)

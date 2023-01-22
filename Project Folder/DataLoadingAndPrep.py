@@ -40,6 +40,8 @@ class Digits(Dataset):
 if __name__ == "__main__":
     transforms = tt.Lambda(lambda x: 2. * (x / 17.) - 1.)
     train_data = Digits(mode='train', transforms=transforms)
+    train_data.__getitem__(1)
+
     val_data = Digits(mode='val', transforms=transforms)
     test_data = Digits(mode='test', transforms=transforms)
 

@@ -310,7 +310,6 @@ def samples_generated(name, data_loader, extra_name=''):
 
     plt.savefig(name + '_generated_images' + extra_name + '.pdf', bbox_inches='tight')
     plt.close()
-
 #sample forward diffusion
 def samples_diffusion(name, data_loader, extra_name=''):
     x = next(iter(data_loader)).to(device=device)
@@ -396,16 +395,15 @@ def sample_all_backward_mapping_steps(result_dir, name):
     list_of_mu_i = []
     z = torch.randn([model_best.D]).to(device=device)
     if using_conv:
-        z = torch.unsqueeze(z, 1)  # Bjarke added this
-        z = z.reshape((z.shape[0], 8, 8))
+        z = z.reshape((1, 8, 8))
+
     for i in range(len(model_best.p_dnns) - 1, -1, -1):
         h = model_best.p_dnns[i](z)
         mu_i, log_var_i = torch.chunk(h, 2, dim=-1)  # splits the tensor into 2
         list_of_mu_i.append(mu_i)
         z = model_best.reparameterization(torch.tanh(mu_i), log_var_i)
         if using_conv:
-            z = torch.unsqueeze(z, 1)  # Bjarke added this
-            z = z.reshape((z.shape[0], 8, 8))
+            z = z.reshape((1, 8, 8))
     mu_x = model_best.decoder_net(z)
     list_of_mu_i.append(mu_x)
 
