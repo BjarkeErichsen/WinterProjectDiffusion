@@ -400,11 +400,18 @@ def final_test_and_saving(model, test_loader, nll_val):
     plot_curve(result_dir + name, nll_val)
 
     # We generate a sample whenever we encounter a NEW BEST
+    plt.plot(cosine_beta_schedule(T, s=s), label = str(s))
+    plt.savefig(result_dir + name + 'NoiceScheduler.pdf', bbox_inches='tight')
+    plt.close()
+
     samples_generated(result_dir + name, test_loader, extra_name='FINAL')
     samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
 
     sample_all_diffusion_steps(result_dir, name, test_loader)
     sample_all_backward_mapping_steps(result_dir, name)
+
+
+
 
 def sample_all_diffusion_steps(result_dir, name, data_loader):
     x = next(iter(data_loader))[0]
