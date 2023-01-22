@@ -384,14 +384,14 @@ def sample_all_diffusion_steps(result_dir, name, data_loader):
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
 
         plt.imshow(plottable_image, cmap='gray')
-        plt.savefig(dir + '\Forward_Step' + str(i) + '.pdf', bbox_inches='tight')
+        plt.savefig(dir + '\Forward_Step' + str(i) + '.pdf')
         plt.close()
 
 def sample_all_backward_mapping_steps(result_dir, name):
     # GENERATIONS-------
     model_best = torch.load(result_dir + name + '.model')
     model_best.eval()
-    dir = result_dir + name + "\BackwardMapSteps" + '/'
+    dir = result_dir + name + "\BackwardMapSteps"
     os.makedirs(dir)
 
     list_of_mu_i = []
@@ -413,10 +413,10 @@ def sample_all_backward_mapping_steps(result_dir, name):
     for i in range(T):
         z = list_of_mu_i[i].cpu()
         z = z.detach().numpy()
-        plottable_image = np.moveaxis(z.reshape((3, 68, 68)), [0, 1, 2], [2, 0, 1])
+        plottable_image = z.reshape((8, 8))
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
         plt.imshow(plottable_image, cmap='gray')
-        plt.savefig(dir + '_Step' + str(i) + '.pdf', bbox_inches='tight')
+        plt.savefig(dir+ '\Backward_Step' + str(i) + '.pdf')
         plt.close()
 
 
