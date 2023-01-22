@@ -114,7 +114,7 @@ else:
     p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
+                            nn.Linear(M, 2 * D), nn.Tanh()).to(device=device) for _ in range(T-1)]
     decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
@@ -420,19 +420,23 @@ def sample_all_diffusion_steps(result_dir, name, data_loader):
     dir = result_dir + name + "\ForwardDiffSteps"
     os.makedirs(dir)
 
-    zs = [model_best.reparameterization_gaussian_diffusion(x, 0)]
+    zs = [x]
+    zs.append(model_best.reparameterization_gaussian_diffusion(x, 0))
     for i in range(1, model_best.T):
         zs.append(model_best.reparameterization_gaussian_diffusion(zs[-1], i))
 
-    for i in range(T):
+    for i in range(T+1):
         z = zs[i].cpu()
         z = z.detach().numpy()
         plottable_image = np.moveaxis(z.reshape((3, 68, 68)), [0, 1, 2], [2, 0, 1])
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
-
-        plt.imshow(plottable_image, cmap='rgb')
-        plt.savefig(dir + '\Forward_Step' + str(i) + '.pdf')
-        plt.close()
+        plt.imshow(plottable_image)
+        if i == 0:
+            plt.savefig(dir + '\X_OriginalData' +'.pdf')
+            plt.close()
+        else:
+            plt.savefig(dir + '\Forward_Step' + str(i-1) + '.pdf')
+            plt.close()
 
 def sample_all_backward_mapping_steps(result_dir, name):
     # GENERATIONS-------
@@ -445,6 +449,8 @@ def sample_all_backward_mapping_steps(result_dir, name):
     z = torch.randn([model_best.D]).to(device=device)
     if using_conv:
         z = z.reshape((1, 3, 68, 68))
+
+    list_of_mu_i.append(z)
     for i in range(len(model_best.p_dnns) - 1, -1, -1):
         h = model_best.p_dnns[i](z)
         mu_i, log_var_i = torch.chunk(h, 2, dim=-1)  # splits the tensor into 2
@@ -455,14 +461,18 @@ def sample_all_backward_mapping_steps(result_dir, name):
     mu_x = model_best.decoder_net(z)
     list_of_mu_i.append(mu_x)
 
-    for i in range(T):
+    for i in range(T+1):
         z = list_of_mu_i[i].cpu()
         z = z.detach().numpy()
         plottable_image = np.moveaxis(z.reshape((3, 68, 68)), [0, 1, 2], [2, 0, 1])
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
-        plt.imshow(plottable_image, cmap='rgb')
-        plt.savefig(dir + '\Backward_Step' + str(i) + '.pdf')
-        plt.close()
+        plt.imshow(plottable_image)
+        if i == 0:
+            plt.savefig(dir + '\zT_pureNoice''.pdf')
+            plt.close()
+        else:
+            plt.savefig(dir + '\Backward_Step' + str(i-1) + '.pdf')
+            plt.close()
 
 if __name__ == "__main__":
 

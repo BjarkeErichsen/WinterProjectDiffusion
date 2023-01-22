@@ -371,19 +371,23 @@ def sample_all_diffusion_steps(result_dir, name, data_loader):
 
     dir = result_dir + name + "\ForwardDiffSteps"
     os.makedirs(dir)
-
-    zs = [model_best.reparameterization_gaussian_diffusion(x, 0)]
+    zs = [x]
+    zs.append(model_best.reparameterization_gaussian_diffusion(x, 0))
     for i in range(1, model_best.T):
         zs.append(model_best.reparameterization_gaussian_diffusion(zs[-1], i))
 
-    for i in range(T):
+    for i in range(T+1):
         z = zs[i].cpu()
         z = z.detach().numpy()
         plottable_image = z.reshape((8, 8))
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
         plt.imshow(plottable_image, cmap='gray')
-        plt.savefig(dir + '\Forward_Step' + str(i) + '.pdf')
-        plt.close()
+        if i == 0:
+            plt.savefig(dir + '\X_OriginalData' + '.pdf')
+            plt.close()
+        else:
+            plt.savefig(dir + '\Forward_Step' + str(i - 1) + '.pdf')
+            plt.close()
 
 def sample_all_backward_mapping_steps(result_dir, name):
     # GENERATIONS-------
@@ -397,6 +401,7 @@ def sample_all_backward_mapping_steps(result_dir, name):
     if using_conv:
         z = z.reshape((1, 8, 8))
 
+    list_of_mu_i.append(z)
     for i in range(len(model_best.p_dnns) - 1, -1, -1):
         h = model_best.p_dnns[i](z)
         mu_i, log_var_i = torch.chunk(h, 2, dim=-1)  # splits the tensor into 2
@@ -407,14 +412,18 @@ def sample_all_backward_mapping_steps(result_dir, name):
     mu_x = model_best.decoder_net(z)
     list_of_mu_i.append(mu_x)
 
-    for i in range(T):
+    for i in range(T+1):
         z = list_of_mu_i[i].cpu()
         z = z.detach().numpy()
         plottable_image = z.reshape((8, 8))
         plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
         plt.imshow(plottable_image, cmap='gray')
-        plt.savefig(dir+ '\Backward_Step' + str(i) + '.pdf')
-        plt.close()
+        if i == 0:
+            plt.savefig(dir + '\zT_pureNoice''.pdf')
+            plt.close()
+        else:
+            plt.savefig(dir + '\Backward_Step' + str(i-1) + '.pdf')
+            plt.close()
 
 
 
