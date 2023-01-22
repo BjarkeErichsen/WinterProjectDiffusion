@@ -7,9 +7,10 @@ import torch.nn as nn
 import torchvision.transforms as tt
 from DataLoadingAndPrep import Digits
 from FredeDataLoader import DataImage
+import datetime
 
 #input eksperiment type
-type_of_eksperiment = dict(using_conv = True)
+type_of_eksperiment = dict(using_conv = False)
 using_conv = type_of_eksperiment['using_conv']
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -19,11 +20,12 @@ PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 5  #number of steps
-beta = 0.8
+T = 8  #number of steps
+#beta = 0.8
+s = 0.003  #pertains to the cosine noice scheduler. The lower the more parabolic the curve is
 lr = 1e-3 #1e-4 # learning rate
-num_epochs = 500 # max. number of epochs
-max_patience = 40 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+num_epochs = 50 # max. number of epochs
+max_patience = 300 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
 
 #tilføjede hyperparametre
@@ -53,14 +55,18 @@ if using_conv:
                                 nn.Linear(M*2, D), nn.Tanh()).to(device=device)
 else:
     p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
+                            nn.Dropout(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Dropout(),
                             nn.Linear(M, M), nn.LeakyReLU(),
+                            nn.Dropout(),
                             nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
     decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
+                                nn.Dropout(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Dropout(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
+                                nn.Dropout(),
                                 nn.Linear(M*2, D), nn.Tanh()).to(device=device)
 
 
@@ -82,9 +88,19 @@ def log_standard_normal(x, reduction=None, dim=None):
     else:
         return log_p
 
+def cosine_beta_schedule(timesteps, s=0.008):
+    """
+    cosine schedule as proposed in https://arxiv.org/abs/2102.09672
+    """
+    steps = timesteps + 1
+    x = torch.linspace(0, timesteps, steps)
+    alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
+    alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+    betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+    return torch.clip(betas, 0.0001, 0.9999)
 
 class DDGM(nn.Module):
-    def __init__(self, p_dnns, decoder_net, beta, T, D):
+    def __init__(self, p_dnns, decoder_net, T, D, s):
         super(DDGM, self).__init__()
 
         print('DDGM by JT.')
@@ -98,18 +114,21 @@ class DDGM(nn.Module):
 
         self.T = T
 
-        self.beta = torch.FloatTensor([beta]).to(device=device)
+        #self.beta = torch.FloatTensor([beta]).to(device=device)
 
+        self.betas = cosine_beta_schedule(T, s=s).to(device=device)
     #zt <- mu and var <- network(zt+1)
     @staticmethod
     def reparameterization(mu, log_var):
         std = torch.exp(0.5*log_var)
         eps = torch.randn_like(std)
         return mu + std * eps
-    #Used for foward diffusion, remember we need to ACTUALLY generate the noice when doing forward diffusion
-    def reparameterization_gaussian_diffusion(self, x, i):
 
-        return torch.sqrt(1. - self.beta) * x + torch.sqrt(self.beta) * torch.randn_like(x)
+    #def reparameterization_gaussian_diffusion(self, x, i):
+    #    return torch.sqrt(1. - self.beta) * x + torch.sqrt(self.beta) * torch.randn_like(x)
+
+    def reparameterization_gaussian_diffusion(self, x, i):
+        return torch.sqrt(1. - self.betas[i]) * x + torch.sqrt(self.betas[i]) * torch.randn_like(x)
 
     def forward(self, x, reduction='avg'):
         # =====
@@ -138,11 +157,19 @@ class DDGM(nn.Module):
         RE = log_standard_normal(x - mu_x).sum(-1)
 
         # KL
+        """
         KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.beta) * zs[-1], torch.log(self.beta)) - log_standard_normal(zs[-1])).sum(-1)
 
         for i in range(len(mus)):
             KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.beta) * zs[i], torch.log(self.beta)) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
 
+            KL = KL + KL_i
+            
+        """
+        KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.betas[-1]) * zs[-1], torch.log(self.betas[-1])) - log_standard_normal(zs[-1])).sum(-1)
+
+        for i in range(len(mus)):
+            KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
             KL = KL + KL_i
         # KL, RE
         # Final ELBO
@@ -283,6 +310,7 @@ def samples_generated(name, data_loader, extra_name=''):
 
     plt.savefig(name + '_generated_images' + extra_name + '.pdf', bbox_inches='tight')
     plt.close()
+
 #sample forward diffusion
 def samples_diffusion(name, data_loader, extra_name=''):
     x = next(iter(data_loader)).to(device=device)
@@ -304,7 +332,7 @@ def samples_diffusion(name, data_loader, extra_name=''):
         ax.imshow(plottable_image, cmap='gray')
         ax.axis('off')
 
-    plt.savefig(name + '_generated_diffusion' + extra_name + '.pdf', bbox_inches='tight')
+    plt.savefig(name + '_generated_' + extra_name + '.pdf', bbox_inches='tight')
     plt.close()
 #plot of nll = negative log likelihood, we of course want to minimize negative log likelihood
 def plot_curve(name, nll_val):
@@ -328,6 +356,69 @@ def test(model, test_loader, nll_val):
     samples_generated(result_dir + name, test_loader, extra_name='FINAL')
     samples_diffusion(result_dir + name, test_loader, extra_name='DIFFUSION')
 
+    plt.plot(cosine_beta_schedule(T, s=s), label = str(s))
+    plt.savefig(result_dir + name + 'NoiceScheduler.pdf', bbox_inches='tight')
+    plt.close()
+
+    sample_all_diffusion_steps(result_dir, name, test_loader)
+    sample_all_backward_mapping_steps(result_dir, name)
+
+def sample_all_diffusion_steps(result_dir, name, data_loader):
+    x = next(iter(data_loader))[0]
+    x = x.to(device=device)
+
+    model_best = torch.load(result_dir + name + '.model')
+    model_best.eval()
+
+    dir = result_dir + name + "\ForwardDiffSteps"
+    os.makedirs(dir)
+
+    zs = [model_best.reparameterization_gaussian_diffusion(x, 0)]
+    for i in range(1, model_best.T):
+        zs.append(model_best.reparameterization_gaussian_diffusion(zs[-1], i))
+
+    for i in range(T):
+        z = zs[i].cpu()
+        z = z.detach().numpy()
+        plottable_image = z.reshape((8, 8))
+        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
+
+        plt.imshow(plottable_image, cmap='gray')
+        plt.savefig(dir + '\Forward_Step' + str(i) + '.pdf', bbox_inches='tight')
+        plt.close()
+
+def sample_all_backward_mapping_steps(result_dir, name):
+    # GENERATIONS-------
+    model_best = torch.load(result_dir + name + '.model')
+    model_best.eval()
+    dir = result_dir + name + "\BackwardMapSteps" + '/'
+    os.makedirs(dir)
+
+    list_of_mu_i = []
+    z = torch.randn([model_best.D]).to(device=device)
+    if using_conv:
+        z = torch.unsqueeze(z, 1)  # Bjarke added this
+        z = z.reshape((z.shape[0], 3, 68, 68))
+    for i in range(len(model_best.p_dnns) - 1, -1, -1):
+        h = model_best.p_dnns[i](z)
+        mu_i, log_var_i = torch.chunk(h, 2, dim=-1)  # splits the tensor into 2
+        list_of_mu_i.append(mu_i)
+        z = model_best.reparameterization(torch.tanh(mu_i), log_var_i)
+        if using_conv:
+            z = torch.unsqueeze(z, 1)  # Bjarke added this
+            z = z.reshape((z.shape[0], 3, 68, 68))
+    mu_x = model_best.decoder_net(z)
+    list_of_mu_i.append(mu_x)
+
+    for i in range(T):
+        z = list_of_mu_i[i].cpu()
+        z = z.detach().numpy()
+        plottable_image = np.moveaxis(z.reshape((3, 68, 68)), [0, 1, 2], [2, 0, 1])
+        plottable_image = (plottable_image - plottable_image.min()) / (plottable_image.max() - plottable_image.min())
+        plt.imshow(plottable_image, cmap='gray')
+        plt.savefig(dir + '_Step' + str(i) + '.pdf', bbox_inches='tight')
+        plt.close()
+
 
 
 if __name__ == "__main__":
@@ -341,13 +432,13 @@ if __name__ == "__main__":
     training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
-
-    name = 'Diffusion' + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "beta_" + str(beta) + '_' + 'M_' + str(M)
+    now = datetime.datetime.now()
+    name = 'Diffusion' + '_'  + "Hour_" + str(now.hour) + "_Min_" + str(now.minute) + '_' + "Conv_" + str(using_conv) + "_T_" + str(T) + '_' + "s_" + str(s) + '_' + 'M_' + str(M)
     result_dir = 'Results/' + name + '/'
     if not (os.path.exists(result_dir)):
         os.makedirs(result_dir)
 
-    model = DDGM(p_dnns, decoder_net, beta=beta, T=T, D=D)
+    model = DDGM(p_dnns, decoder_net, s = s, T=T, D=D)
 
     model = model.to(device=device)
 

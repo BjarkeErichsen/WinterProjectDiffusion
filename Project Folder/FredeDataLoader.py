@@ -9,7 +9,7 @@ from PIL import Image  # used to load TIF file format.
 class DataImage(Dataset):
     def __init__(self, mode='train', flatten = False):
         #image_dir = path to folder of folders of images
-        image_dir = r"C:\Users\EG\OneDrive - Danmarks Tekniske Universitet\Skrivebord\Winter diffusion\SingleCellDataset\singh_cp_pipeline_singlecell_images"
+        image_dir = r"C:\Users\EXG\OneDrive - Danmarks Tekniske Universitet\Skrivebord\WinterDiffusionProject\singh_cp_pipeline_singlecell_images"
         self.directory_of_all_image_paths = []
         for root, dirs, files in os.walk(image_dir, topdown=True):
             for name in files:
