@@ -26,9 +26,9 @@ PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 7  #number of steps
+T = 4  #number of steps
 s = 0.008    #Larger s -> Less curved beta curve
-lr = 1e-4 #1e-4 # learning rate
+lr = 1e-3*0.5 #1e-4 # learning rate
 num_epochs = 1 # max. number of epochs
 max_patience = 2 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32  #64 makes the machine run out of memory
@@ -196,7 +196,6 @@ class DDGM(nn.Module):
             mus.append(mu_i)
             log_vars.append(log_var_i)
 
-
         mu_x = self.decoder_net(zs[0])
         if using_conv:
             _shape = x.shape
@@ -292,8 +291,8 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
             optimizer.step()
             if indx_batch % 50 == 0:
                 print(indx_batch)
-            if indx_batch>50:
-                break
+            #if indx_batch>5000:
+            #    break
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
         nll_val.append(loss_val)  # save for plotting
