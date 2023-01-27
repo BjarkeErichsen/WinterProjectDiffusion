@@ -20,12 +20,12 @@ PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 8  #number of steps
-#beta = 0.8
+T = 5  #number of steps
+beta = 0.4
 s = 0.003  #pertains to the cosine noice scheduler. The lower the more parabolic the curve is
 lr = 1e-3 #1e-4 # learning rate
-num_epochs = 50 # max. number of epochs
-max_patience = 300 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+num_epochs = 70 # max. number of epochs
+max_patience = 10 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
 
 #tilføjede hyperparametre
@@ -44,7 +44,7 @@ if using_conv:
                             nn.Linear(512, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
+                            nn.Linear(M, 2 * D), nn.Tanh()).to(device=device) for _ in range(T-1)]
     decoder_net = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
                                 nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
                                 nn.Conv1d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
@@ -97,6 +97,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
     alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
     alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+    betas = torch.tensor([beta,beta,beta,beta,beta,beta])
     return torch.clip(betas, 0.0001, 0.9999)
 
 class DDGM(nn.Module):
@@ -167,10 +168,19 @@ class DDGM(nn.Module):
             
         """
         KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.betas[-1]) * zs[-1], torch.log(self.betas[-1])) - log_standard_normal(zs[-1])).sum(-1)
-
+        """
         for i in range(len(mus)):
             KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
             KL = KL + KL_i
+        """
+
+        for i in range(len(mus)):
+            #RE_i = log_standard_normal(zs[i] - mus[i]).sum(-1)
+            KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
+
+            #RE = RE + RE_i
+            KL = KL + KL_i
+
         # KL, RE
         # Final ELBO
         if reduction == 'sum':
@@ -189,7 +199,7 @@ class DDGM(nn.Module):
         for i in range(len(self.p_dnns) - 1, -1, -1):
             h = self.p_dnns[i](z)
             mu_i, log_var_i = torch.chunk(h, 2, dim=1) #splits the tensor into 2
-            z = self.reparameterization(torch.tanh(mu_i), log_var_i)
+            z = self.reparameterization(mu_i, log_var_i)
             if using_conv:
                 z = torch.unsqueeze(z, 1)  # Bjarke added this
 

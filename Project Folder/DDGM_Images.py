@@ -26,11 +26,11 @@ PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 4  #number of steps
-s = 0.008    #Larger s -> Less curved beta curve
-lr = 1e-3*0.5 #1e-4 # learning rate
-num_epochs = 1 # max. number of epochs
-max_patience = 2 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+T = 5  #number of steps
+s = 0.001    #Larger s -> Less curved beta curve
+lr = 1e-3 #1e-4 # learning rate
+num_epochs = 7 # max. number of epochs
+max_patience = 1 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32  #64 makes the machine run out of memory
 #beta = 0.4 not used
 
@@ -87,14 +87,9 @@ if using_conv:
         nn.ReLU(),
         nn.MaxPool2d(2, 2),
 
-        nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
 
         nn.Flatten(),
-        nn.Linear(16384, 1024),
+        nn.Linear(36992, 1024),
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
@@ -113,18 +108,15 @@ if using_conv:
         nn.ReLU(),
         nn.MaxPool2d(2, 2),
 
-        nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-
         nn.Flatten(),
-        nn.Linear(16384, 1024),
+        nn.Linear(36992, 1024),
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
         nn.Linear(512, D), nn.Tanh()).to(device=device)
+
+
+
 else:
     p_dnns = [nn.Sequential(nn.Flatten(),
                             nn.Linear(D, M), nn.LeakyReLU(),
@@ -145,7 +137,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
     alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
     alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-    return torch.clip(betas, 0.0001, 0.9999)
+    return torch.clip(betas, 0.0001, 0.999)
 
 
 #helper functions
@@ -192,6 +184,7 @@ class DDGM(nn.Module):
         return mu + std * eps
 
     def reparameterization_gaussian_diffusion(self, x, i):
+        #return torch.sqrt(1. - self.betas[i]) * x + self.betas[i] * torch.randn_like(x)
         return torch.sqrt(1. - self.betas[i]) * x + torch.sqrt(self.betas[i]) * torch.randn_like(x)
 
     def forward(self, x, reduction='avg'):
@@ -231,7 +224,6 @@ class DDGM(nn.Module):
             KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
             KL = KL + KL_i
 
-
         # KL, RE
         # Final ELBO
         if reduction == 'sum':
@@ -244,14 +236,12 @@ class DDGM(nn.Module):
     def sample(self, batch_size=64):
         z = torch.randn([batch_size, self.D]).to(device=device)
         if using_conv:
-            z = torch.unsqueeze(z, 1)  # Bjarke added this
             z = z.reshape((z.shape[0], 3, 68, 68))
         for i in range(len(self.p_dnns) - 1, -1, -1):
             h = self.p_dnns[i](z)
             mu_i, log_var_i = torch.chunk(h, 2, dim=-1) #splits the tensor into 2
-            z = self.reparameterization(torch.tanh(mu_i), log_var_i)
+            z = self.reparameterization(mu_i, log_var_i)
             if using_conv:
-                z = torch.unsqueeze(z, 1)  # Bjarke added this
                 z = z.reshape((z.shape[0], 3, 68, 68))
 
         mu_x = self.decoder_net(z)
@@ -308,8 +298,8 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
             optimizer.step()
             if indx_batch % 50 == 0:
                 print(indx_batch)
-            #if indx_batch>50:
-            #    break
+            if indx_batch>2000:
+                break
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
         nll_val.append(loss_val)  # save for plotting
@@ -360,7 +350,7 @@ def samples_generated(name, data_loader, extra_name=''):
 
     num_x = 2
     num_y = 2
-    x = model_best.sample(batch_size=num_x * num_y).cpu()
+    x = model_best.sample().cpu()
 
     x = x.detach().numpy()
 
@@ -471,7 +461,7 @@ def sample_all_backward_mapping_steps(result_dir, name):
         h = model_best.p_dnns[i](z)
         mu_i, log_var_i = torch.chunk(h, 2, dim=-1)  # splits the tensor into 2
         list_of_mu_i.append(mu_i)
-        z = model_best.reparameterization(torch.tanh(mu_i), log_var_i)
+        z = model_best.reparameterization(mu_i, log_var_i)
         if using_conv:
             z = z.reshape((1, 3, 68, 68))
     mu_x = model_best.decoder_net(z)
@@ -493,11 +483,14 @@ def sample_all_backward_mapping_steps(result_dir, name):
 if __name__ == "__main__":
 
 
-    transforms = [lambda x: (x - 2448)/2101, lambda x: (x - 5744)/2364, lambda x: (x-3136) / 1401]  #standardization of images
+    #transforms = [lambda x: np.tanh((x - 1898) / 1478), lambda x: np.tanh((x - 5170) / 2113), lambda x: np.tanh((x - 4141) / 2124)]  #standardization of images
+    #x_max = 63504.0
+    #x_min =0.0
+    #transforms = [lambda x: 2 * (x - x_min) / (x_max - x_min) - 1, lambda x: 2 * (x - x_min) / (x_max - x_min) - 1, lambda x: 2 * (x - x_min) / (x_max - x_min) - 1]
 
-    train_data = DataImage(mode='train', flatten = flatten, transforms=transforms)
-    val_data = DataImage(mode='val', flatten = flatten, transforms= transforms)
-    test_data = DataImage(mode='test', flatten = flatten, transforms=transforms)
+    train_data = DataImage(mode='train', flatten = flatten, transform_by_image= True )
+    val_data = DataImage(mode='val', flatten = flatten, transform_by_image= True)
+    test_data = DataImage(mode='test', flatten = flatten, transform_by_image= True)
 
     #train_data = DataImage(mode='train', flatten = flatten)
     #val_data = DataImage(mode='val', flatten = flatten)
