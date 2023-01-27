@@ -27,9 +27,9 @@ EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
 T = 5  #number of steps
-s = 0.001    #Larger s -> Less curved beta curve
+s = 0.5    #Larger s -> Less curved beta curve
 lr = 1e-3 #1e-4 # learning rate
-num_epochs = 7 # max. number of epochs
+num_epochs = 1 # max. number of epochs
 max_patience = 1 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32  #64 makes the machine run out of memory
 #beta = 0.4 not used
@@ -491,10 +491,6 @@ if __name__ == "__main__":
     train_data = DataImage(mode='train', flatten = flatten, transform_by_image= True )
     val_data = DataImage(mode='val', flatten = flatten, transform_by_image= True)
     test_data = DataImage(mode='test', flatten = flatten, transform_by_image= True)
-
-    #train_data = DataImage(mode='train', flatten = flatten)
-    #val_data = DataImage(mode='val', flatten = flatten)
-    #test_data = DataImage(mode='test', flatten = flatten)
 
     training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
