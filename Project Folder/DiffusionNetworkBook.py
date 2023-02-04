@@ -8,24 +8,25 @@ import torchvision.transforms as tt
 from DataLoadingAndPrep import Digits
 from FredeDataLoader import DataImage
 import datetime
+import seaborn as sns
 
 #input eksperiment type
 type_of_eksperiment = dict(using_conv = False)
 using_conv = type_of_eksperiment['using_conv']
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+collect_data = False
 
 #normal hyperparams
 PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 5  #number of steps
-beta = 0.4
+T = 20  #number of steps
+beta = 0.05
 s = 0.003  #pertains to the cosine noice scheduler. The lower the more parabolic the curve is
-lr = 1e-3 #1e-4 # learning rate
-num_epochs = 70 # max. number of epochs
-max_patience = 10 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+lr = 1e-5 # learning rate
+num_epochs = 150 # max. number of epochs
+max_patience = 50 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
 
 #tilføjede hyperparametre
@@ -61,6 +62,7 @@ else:
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Dropout(),
                             nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
+
     decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
                                 nn.Dropout(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
@@ -97,8 +99,10 @@ def cosine_beta_schedule(timesteps, s=0.008):
     alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
     alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-    betas = torch.tensor([beta,beta,beta,beta,beta,beta])
+    betas = torch.tensor([beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta,beta])
     return torch.clip(betas, 0.0001, 0.9999)
+
+
 
 class DDGM(nn.Module):
     def __init__(self, p_dnns, decoder_net, T, D, s):
@@ -114,10 +118,10 @@ class DDGM(nn.Module):
         self.D = D
 
         self.T = T
-
         #self.beta = torch.FloatTensor([beta]).to(device=device)
-
         self.betas = cosine_beta_schedule(T, s=s).to(device=device)
+
+        self.batch_data = None
     #zt <- mu and var <- network(zt+1)
     @staticmethod
     def reparameterization(mu, log_var):
@@ -130,8 +134,9 @@ class DDGM(nn.Module):
 
     def reparameterization_gaussian_diffusion(self, x, i):
         return torch.sqrt(1. - self.betas[i]) * x + torch.sqrt(self.betas[i]) * torch.randn_like(x)
+        #return torch.sqrt(1. - self.betas[i]) * x + self.betas[i] * torch.randn_like(x)
 
-    def forward(self, x, reduction='avg'):
+    def forward(self, x, reduction='avg', collect_data = False):
         # =====
 
         # forward difussion
@@ -154,35 +159,37 @@ class DDGM(nn.Module):
         mu_x = self.decoder_net(zs[0].to(device=device))
 
         # =====ELBO
-        # RE
         RE = log_standard_normal(x - mu_x).sum(-1)
 
-        # KL
-        """
-        KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.beta) * zs[-1], torch.log(self.beta)) - log_standard_normal(zs[-1])).sum(-1)
+        if collect_data:
+            plot_dict = {"RE": [], "qz0": [], "pz0": [], "qz": [], "pz": [], "mus": [], "log_var": []}
+            qz = log_normal_diag(zs[-1], torch.sqrt(1. - self.betas[-1]) * zs[-1], torch.log(self.betas[-1]))
+            pz = log_standard_normal(zs[-1])
+            KL = (qz - pz).sum(-1)
+            plot_dict["qz0"].append(torch.mean(qz.sum(-1)))
+            plot_dict["pz0"].append(torch.mean(pz.sum(-1)))
+            plot_dict["RE"].append(torch.mean(pz.sum(-1)))
+        else:
+            KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.betas[-1]) * zs[-1], torch.log(self.betas[-1])) - log_standard_normal(zs[-1])).sum(-1)
 
         for i in range(len(mus)):
-            KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.beta) * zs[i], torch.log(self.beta)) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
+
+            if collect_data:
+                qz = log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i]))
+                pz = log_normal_diag(zs[i], mus[i], log_vars[i])
+                KL_i = (qz - pz).sum(-1)
+                plot_dict["qz"].append(torch.mean(qz.sum(-1)))
+                plot_dict["pz"].append(torch.mean(pz.sum(-1)))
+                plot_dict["mus"].append(mus[i])
+                plot_dict["log_var"].append(log_vars[i])
+                self.batch_data = plot_dict
+            else:
+                KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
 
             KL = KL + KL_i
-            
-        """
-        KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.betas[-1]) * zs[-1], torch.log(self.betas[-1])) - log_standard_normal(zs[-1])).sum(-1)
-        """
-        for i in range(len(mus)):
-            KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
-            KL = KL + KL_i
-        """
 
-        for i in range(len(mus)):
-            #RE_i = log_standard_normal(zs[i] - mus[i]).sum(-1)
-            KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
+        #min negative nll,
 
-            #RE = RE + RE_i
-            KL = KL + KL_i
-
-        # KL, RE
-        # Final ELBO
         if reduction == 'sum':
             loss = -(RE - KL).sum()
         else:
@@ -224,16 +231,18 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
     model_best.eval()
     loss = 0.
     N = 0.
+    #batch_data = []
     for indx_batch, test_batch in enumerate(test_loader):
         if using_conv:
             test_batch = torch.unsqueeze(test_batch, 1) #Bjarke added this
         test_batch = test_batch.to(device=device)
 
         loss_t = model_best.forward(test_batch, reduction='sum')
+        #batch_data.append(model_best.batch_data)
         loss = loss + loss_t.item()
         N = N + test_batch.shape[0]
     loss = loss / N
-
+    #plot_epoch_data(batch_data)
     if epoch is None:
         print(f'FINAL LOSS: nll={loss}')
     else:
@@ -252,15 +261,21 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
     for e in range(num_epochs):
         # TRAINING
         model.train()
+        if collect_data:
+            epoch_data = []
         for indx_batch, batch in enumerate(training_loader):
             if using_conv:
                 batch = torch.unsqueeze(batch, 1)  # Bjarke added this
             batch = batch.to(device=device)
-            loss = model.forward(batch)
+            loss = model.forward(batch, collect_data=collect_data)
+            if collect_data:
+                epoch_data.append(model.batch_data)
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
 
+        if collect_data:
+            plot_epoch_data(epoch_data)
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
         nll_val.append(loss_val)  # save for plotting
@@ -351,6 +366,95 @@ def plot_curve(name, nll_val):
     plt.savefig(name + '_nll_val_curve.pdf', bbox_inches='tight')
     plt.close()
 
+def plot_epoch_data(epoch_data):
+
+    plot_dict = {"RE": [], "qz0": [], "pz0": [], "qz": [], "pz": [], "mus": [], "log_var": []}
+    n_batches = len(epoch_data)
+
+    qz0 = []
+    pz0 = []
+    qz = []
+    pz = []
+    RE = []
+    mus = []
+    log_var = []
+    for i in range(n_batches):
+        qz0.append(epoch_data[i]["qz0"])
+        pz0.append(epoch_data[i]["pz0"])
+        qz.append(epoch_data[i]["qz"])
+        pz.append(epoch_data[i]["pz"])
+        RE.append(epoch_data[i]["RE"])
+        mus.append(epoch_data[i]["mus"])
+        log_var.append(epoch_data[i]["log_var"])
+
+    plt.plot(range(n_batches), qz0)
+    plt.plot(range(n_batches), pz0)
+    plt.title('pz and qz at timestep 0, for every batch')
+    plt.show()
+
+
+    new_pz = []
+    new_qz = []
+    for i in range(T-1):
+        helper1 = []
+        helper2 = []
+        for k in range(n_batches):
+            helper1.append(pz[k][i])
+            helper2.append(qz[k][i])
+        new_pz.append(helper1)
+        new_qz.append(helper2)
+    for i in range(T-1):
+        plt.plot(range(n_batches), new_pz[i])
+    plt.title('pz for each diffusion step over each batch')
+    plt.show()
+
+    for i in range(T - 1):
+        plt.plot(range(n_batches), new_qz[i])
+    plt.title('qz for each diffusion step over each batch')
+    plt.show()
+
+    plt.plot(range(n_batches), RE)
+    plt.title('RE')
+    plt.show()
+
+
+
+    rTimestep1 = np.random.randint(0, T-2)
+    rBatch1 = np.random.randint(0, n_batches-1)
+    rBatchElement1 = np.random.randint(0, batch_size-1)
+    rTimestep2 = np.random.randint(0, T-2)
+    rBatch2 = np.random.randint(0, n_batches-1)
+    rBatchElement2 = np.random.randint(0, batch_size-1)
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
+    #fig.suptitle('Sharing x per column, y per row')
+    sns.heatmap(mus[rBatch1][rTimestep1][rBatchElement1].detach().cpu().numpy().reshape(8, 8), linewidth=0.5, cmap='coolwarm', ax=ax1)
+    sns.heatmap(mus[rBatch2][rTimestep2][rBatchElement2].detach().cpu().numpy().reshape(8, 8), linewidth=0.5, cmap='coolwarm', ax=ax2)
+    sns.heatmap(torch.exp(log_var[rBatch1][rTimestep1][rBatchElement1]).detach().cpu().numpy().reshape(8, 8), linewidth=0.5, ax=ax3)
+    sns.heatmap(torch.exp(log_var[rBatch2][rTimestep2][rBatchElement2]).detach().cpu().numpy().reshape(8, 8), linewidth=0.5, ax=ax4)
+    """
+    ax1.title.set_text('Means at Timestep ' + str(rTimestep1))
+    ax2.title.set_text('Means at Timestep ' + str(rTimestep2))
+    ax3.title.set_text('Variance at Timestep ' + str(rTimestep1))
+    ax4.title.set_text('Variance  at Timestep ' + str(rTimestep2))
+    """
+    for ax in fig.get_axes():
+        ax.label_outer()
+
+    plt.show()
+
+    KL = np.squeeze(np.array(qz0)-np.array(pz0))
+    for i in range(T-1):
+        KL += np.array(new_qz[i])-np.array(new_pz[i])
+    plt.plot(range(n_batches),  KL, label='KL')
+    plt.plot(range(n_batches), RE, label='RE')
+    plt.legend()
+    plt.title("All the different measures of loss")
+    plt.xlabel("Epochs")
+    plt.show()
+
+    plt.plot(range(n_batches), RE, label='RE')
+    plt.title("Reconstruction loss")
+    plt.show()
 def test(model, test_loader, nll_val):
     # Final evaluation
     test_loss = evaluation(name=result_dir + name, test_loader=test_loader)

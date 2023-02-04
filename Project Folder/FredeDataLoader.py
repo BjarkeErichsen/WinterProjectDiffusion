@@ -9,7 +9,7 @@ import torchvision.transforms as tt
 class DataImage(Dataset):
     def __init__(self, mode='train', flatten = False, transforms=False, transform_by_image = False):
         #image_dir = path to folder of folders of images
-        image_dir = r"C:\Users\EXG\OneDrive - Danmarks Tekniske Universitet\Skrivebord\WinterDiffusionProject\singh_cp_pipeline_singlecell_images"
+        image_dir = r"C:\Users\EG\OneDrive - Danmarks Tekniske Universitet\Skrivebord\Winter diffusion\SingleCellDataset\singh_cp_pipeline_singlecell_images"
         self.directory_of_all_image_paths = []
         for root, dirs, files in os.walk(image_dir, topdown=True):
             for name in files:
@@ -49,7 +49,10 @@ class DataImage(Dataset):
             np_image = convert_image
             np_image = np.swapaxes(np_image,0,2)
         if self.transform_by_image:
-            np_image = 2 * (np_image - np_image.min()) / (np_image.max() - np_image.min()) - 1
+            np_image[0] = 2 * (np_image[0] - np_image[0].min()) / (np_image[0].max() - np_image[0].min()) - 1
+            np_image[1] = 2 * (np_image[1] - np_image[1].min()) / (np_image[1].max() - np_image[1].min()) - 1
+            np_image[2] = 2 * (np_image[2] - np_image[2].min()) / (np_image[2].max() - np_image[2].min()) - 1
+
 
         if self.transforms:
             np_image = np.array([self.R_transform(np_image[0]), self.G_transform(np_image[1]), self.B_transform(np_image[2])])
@@ -93,9 +96,8 @@ if __name__ == "__main__":
     transforms = [lambda x: (x-x_min)/(x_max - x_min), lambda x: (x-x_min)/(x_max - x_min), lambda x: (x-x_min)/(x_max - x_min)]
 
 
-    dataset = DataImage(flatten=False) # takes either .npy or .tiff files
+    dataset = DataImage(flatten=False, transform_by_image = True) # takes either .npy or .tiff files
     a = dataset.__getitem__(0)
-    calculating_transform_for_images(dataset)
     print(a)
 
 #train_set, test_set, val_set = torch.utils.data.random_split(dataset, [train_size, test_size, val_size])

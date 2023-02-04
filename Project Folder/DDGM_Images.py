@@ -41,75 +41,43 @@ channels = 3
 if using_conv:
     conv_channels = 8
     k_size = 3 #must be 3, 5, 7 etc i e. not even numbers the first conv layer has K size + 2
-    """
-    p_dnns = [nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
-                            nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
-                            nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
-                            nn.Flatten(),
-                            nn.Linear(512, M), nn.LeakyReLU(),
-                            nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
-    decoder_net = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
-                                nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
-                                nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
-                                nn.Flatten(),
-                                nn.Linear(512, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, D), nn.Tanh()).to(device=device)
-    """
-
-    """
-        nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-
-        nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-    """
     p_dnns = [nn.Sequential(
 
-        nn.Conv2d(channels, 32, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
+        #nn.Conv2d(channels, 32, kernel_size=3, padding=1),
+        #nn.ReLU(),
+        #nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.MaxPool2d(2, 2),
 
-        nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
+        #nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.MaxPool2d(2, 2),
 
 
         nn.Flatten(),
-        nn.Linear(36992, 1024),
+        nn.Linear(D, 1024),
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
         nn.Linear(512, 2*D), nn.Tanh()).to(device=device) for _ in range(T-1)]
 
     decoder_net = nn.Sequential(
-        nn.Conv2d(channels, 32, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
+        #nn.Conv2d(channels, 32, kernel_size=3, padding=1),
+        #nn.ReLU(),
+        #nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.MaxPool2d(2, 2),
 
-        nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
+        #nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.MaxPool2d(2, 2),
 
         nn.Flatten(),
-        nn.Linear(36992, 1024),
+        nn.Linear(D, 1024),
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
@@ -298,7 +266,7 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
             optimizer.step()
             if indx_batch % 50 == 0:
                 print(indx_batch)
-            if indx_batch>2000:
+            if indx_batch>5000:
                 break
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
