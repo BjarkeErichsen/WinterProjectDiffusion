@@ -26,11 +26,11 @@ PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 7  #number of steps
-s = 0.008    #Larger s -> Less curved beta curve
-lr = 1e-4 #1e-4 # learning rate
+T = 5  #number of steps
+s = 0.5    #Larger s -> Less curved beta curve
+lr = 1e-3 #1e-4 # learning rate
 num_epochs = 1 # max. number of epochs
-max_patience = 2 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
+max_patience = 1 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32  #64 makes the machine run out of memory
 #beta = 0.4 not used
 
@@ -41,81 +41,58 @@ channels = 3
 if using_conv:
     conv_channels = 8
     k_size = 3 #must be 3, 5, 7 etc i e. not even numbers the first conv layer has K size + 2
-    """
-    p_dnns = [nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
-                            nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
-                            nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
-                            nn.Flatten(),
-                            nn.Linear(512, M), nn.LeakyReLU(),
-                            nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, M), nn.LeakyReLU(),
-                            nn.Linear(M, 2 * D)).to(device=device) for _ in range(T-1)]
-    decoder_net = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=k_size, padding = int((k_size-1)/2)), nn.ReLU(),
-                                nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding = int((k_size-1)/2)), nn.ReLU(),
-                                nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=k_size,padding=int((k_size-1)/2)), nn.ReLU(),
-                                nn.Flatten(),
-                                nn.Linear(512, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, M*2), nn.LeakyReLU(),
-                                nn.Linear(M*2, D), nn.Tanh()).to(device=device)
-    """
     p_dnns = [nn.Sequential(
-        nn.Conv2d(channels, 32, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
 
-        nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
+        #nn.Conv2d(channels, 32, kernel_size=3, padding=1),
+        #nn.ReLU(),
+        #nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.MaxPool2d(2, 2),
 
-        nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
+        #nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.MaxPool2d(2, 2),
+
 
         nn.Flatten(),
-        nn.Linear(16384, 1024),
+        nn.Linear(D, 1024),
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
         nn.Linear(512, 2*D), nn.Tanh()).to(device=device) for _ in range(T-1)]
 
     decoder_net = nn.Sequential(
-        nn.Conv2d(channels, 32, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
+        #nn.Conv2d(channels, 32, kernel_size=3, padding=1),
+        #nn.ReLU(),
+        #nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.MaxPool2d(2, 2),
 
-        nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
-
-        nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),
+        #nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+        #nn.ReLU(),
+        #nn.MaxPool2d(2, 2),
 
         nn.Flatten(),
-        nn.Linear(16384, 1024),
+        nn.Linear(D, 1024),
         nn.ReLU(),
         nn.Linear(1024, 512),
         nn.ReLU(),
         nn.Linear(512, D), nn.Tanh()).to(device=device)
+
+
+
 else:
-    p_dnns = [nn.Sequential(nn.Linear(D, M), nn.LeakyReLU(),
+    p_dnns = [nn.Sequential(nn.Flatten(),
+                            nn.Linear(D, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, M), nn.LeakyReLU(),
                             nn.Linear(M, 2 * D), nn.Tanh()).to(device=device) for _ in range(T-1)]
-    decoder_net = nn.Sequential(nn.Linear(D, M*2), nn.LeakyReLU(),
+    decoder_net = nn.Sequential(nn.Flatten(),
+                                nn.Linear(D, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, M*2), nn.LeakyReLU(),
                                 nn.Linear(M*2, D), nn.Tanh()).to(device=device)
@@ -128,7 +105,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
     alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
     alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-    return torch.clip(betas, 0.0001, 0.9999)
+    return torch.clip(betas, 0.0001, 0.999)
 
 
 #helper functions
@@ -175,6 +152,7 @@ class DDGM(nn.Module):
         return mu + std * eps
 
     def reparameterization_gaussian_diffusion(self, x, i):
+        #return torch.sqrt(1. - self.betas[i]) * x + self.betas[i] * torch.randn_like(x)
         return torch.sqrt(1. - self.betas[i]) * x + torch.sqrt(self.betas[i]) * torch.randn_like(x)
 
     def forward(self, x, reduction='avg'):
@@ -196,7 +174,6 @@ class DDGM(nn.Module):
             mus.append(mu_i)
             log_vars.append(log_var_i)
 
-
         mu_x = self.decoder_net(zs[0])
         if using_conv:
             _shape = x.shape
@@ -215,7 +192,6 @@ class DDGM(nn.Module):
             KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
             KL = KL + KL_i
 
-
         # KL, RE
         # Final ELBO
         if reduction == 'sum':
@@ -228,14 +204,12 @@ class DDGM(nn.Module):
     def sample(self, batch_size=64):
         z = torch.randn([batch_size, self.D]).to(device=device)
         if using_conv:
-            z = torch.unsqueeze(z, 1)  # Bjarke added this
             z = z.reshape((z.shape[0], 3, 68, 68))
         for i in range(len(self.p_dnns) - 1, -1, -1):
             h = self.p_dnns[i](z)
             mu_i, log_var_i = torch.chunk(h, 2, dim=-1) #splits the tensor into 2
-            z = self.reparameterization(torch.tanh(mu_i), log_var_i)
+            z = self.reparameterization(mu_i, log_var_i)
             if using_conv:
-                z = torch.unsqueeze(z, 1)  # Bjarke added this
                 z = z.reshape((z.shape[0], 3, 68, 68))
 
         mu_x = self.decoder_net(z)
@@ -292,7 +266,7 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
             optimizer.step()
             if indx_batch % 50 == 0:
                 print(indx_batch)
-            if indx_batch>50:
+            if indx_batch>5000:
                 break
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
@@ -344,7 +318,7 @@ def samples_generated(name, data_loader, extra_name=''):
 
     num_x = 2
     num_y = 2
-    x = model_best.sample(batch_size=num_x * num_y).cpu()
+    x = model_best.sample().cpu()
 
     x = x.detach().numpy()
 
@@ -455,7 +429,7 @@ def sample_all_backward_mapping_steps(result_dir, name):
         h = model_best.p_dnns[i](z)
         mu_i, log_var_i = torch.chunk(h, 2, dim=-1)  # splits the tensor into 2
         list_of_mu_i.append(mu_i)
-        z = model_best.reparameterization(torch.tanh(mu_i), log_var_i)
+        z = model_best.reparameterization(mu_i, log_var_i)
         if using_conv:
             z = z.reshape((1, 3, 68, 68))
     mu_x = model_best.decoder_net(z)
@@ -477,15 +451,14 @@ def sample_all_backward_mapping_steps(result_dir, name):
 if __name__ == "__main__":
 
 
-    transforms = [lambda x: (x - 2448)/2101, lambda x: (x - 5744)/2364, lambda x: (x-3136) / 1401]  #standardization of images
+    #transforms = [lambda x: np.tanh((x - 1898) / 1478), lambda x: np.tanh((x - 5170) / 2113), lambda x: np.tanh((x - 4141) / 2124)]  #standardization of images
+    #x_max = 63504.0
+    #x_min =0.0
+    #transforms = [lambda x: 2 * (x - x_min) / (x_max - x_min) - 1, lambda x: 2 * (x - x_min) / (x_max - x_min) - 1, lambda x: 2 * (x - x_min) / (x_max - x_min) - 1]
 
-    train_data = DataImage(mode='train', flatten = flatten, transforms=transforms)
-    val_data = DataImage(mode='val', flatten = flatten, transforms= transforms)
-    test_data = DataImage(mode='test', flatten = flatten, transforms=transforms)
-
-    #train_data = DataImage(mode='train', flatten = flatten)
-    #val_data = DataImage(mode='val', flatten = flatten)
-    #test_data = DataImage(mode='test', flatten = flatten)
+    train_data = DataImage(mode='train', flatten = flatten, transform_by_image= True )
+    val_data = DataImage(mode='val', flatten = flatten, transform_by_image= True)
+    test_data = DataImage(mode='test', flatten = flatten, transform_by_image= True)
 
     training_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
