@@ -21,15 +21,17 @@ PI = torch.from_numpy(np.asarray(np.pi))
 EPS = 1.e-7
 D = 64   # input dimension
 M = 256  # the number of neurons in scale (s) and translation (t) nets
-T = 20  #number of steps
-beta = 0.05
+T = 5  #number of steps
+beta = 0.1
 s = 0.003  #pertains to the cosine noice scheduler. The lower the more parabolic the curve is
 lr = 1e-5 # learning rate
-num_epochs = 150 # max. number of epochs
+num_epochs = 500 # max. number of epochs
 max_patience = 50 # an early stopping is used, if training doesn't improve for longer than 20 epochs, it is stopped
 batch_size = 32
 
 #tilføjede hyperparametre
+
+
 
 
 
@@ -122,6 +124,11 @@ class DDGM(nn.Module):
         self.betas = cosine_beta_schedule(T, s=s).to(device=device)
 
         self.batch_data = None
+
+        self.loss_data = None
+
+        self.helper = 0
+
     #zt <- mu and var <- network(zt+1)
     @staticmethod
     def reparameterization(mu, log_var):
@@ -149,12 +156,15 @@ class DDGM(nn.Module):
         # backward diffusion
         mus = []
         log_vars = []
-
         for i in range(len(self.p_dnns) - 1, -1, -1):
             h = self.p_dnns[i](zs[i+1])
             mu_i, log_var_i = torch.chunk(h, 2, dim=1)
             mus.append(mu_i)
             log_vars.append(log_var_i)
+
+        #for i in range(T-2, -1, -1):
+        #    mu_i = self.decoder_net(zs[i+1])
+        #    mus.append(mu_i)
 
         mu_x = self.decoder_net(zs[0].to(device=device))
 
@@ -162,17 +172,23 @@ class DDGM(nn.Module):
         RE = log_standard_normal(x - mu_x).sum(-1)
 
         if collect_data:
-            plot_dict = {"RE": [], "qz0": [], "pz0": [], "qz": [], "pz": [], "mus": [], "log_var": []}
+            plot_dict = {"RE": [], "qzT": [], "pzT": [], "qz": [], "pz": [], "mus": [], "log_var": []}
             qz = log_normal_diag(zs[-1], torch.sqrt(1. - self.betas[-1]) * zs[-1], torch.log(self.betas[-1]))
             pz = log_standard_normal(zs[-1])
             KL = (qz - pz).sum(-1)
-            plot_dict["qz0"].append(torch.mean(qz.sum(-1)))
-            plot_dict["pz0"].append(torch.mean(pz.sum(-1)))
+            plot_dict["qzT"].append(torch.mean(qz.sum(-1)))
+            plot_dict["pzT"].append(torch.mean(pz.sum(-1)))
             plot_dict["RE"].append(torch.mean(pz.sum(-1)))
         else:
-            KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.betas[-1]) * zs[-1], torch.log(self.betas[-1])) - log_standard_normal(zs[-1])).sum(-1)
+            #KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.betas[-1]) * zs[-1], torch.log(self.betas[-1])) - log_standard_normal(zs[-1])).sum(-1)
+            #KL = (log_normal_diag(zs[-1], torch.sqrt(1. - self.betas[-1]) * zs[-1], torch.log(self.betas[-1])) - log_standard_normal(zs[-1])).sum(-1)
+            KL = torch.tensor([0], device="cuda")
+        helper = KL
 
-        for i in range(len(mus)):
+        mus.reverse()
+        log_vars.reverse()
+        loss = nn.MSELoss()
+        for i in range(0, len(mus)):
 
             if collect_data:
                 qz = log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i]))
@@ -184,7 +200,15 @@ class DDGM(nn.Module):
                 plot_dict["log_var"].append(log_vars[i])
                 self.batch_data = plot_dict
             else:
-                KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
+                #KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(self.betas[i])) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
+                #KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i], torch.log(torch.sqrt(self.betas[i]))) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
+                #KL_i = (log_normal_diag(zs[i], torch.sqrt(1. - self.betas[i]) * zs[i-1],  torch.log(torch.sqrt(self.betas[i]))) - log_normal_diag(zs[i], mus[i], log_vars[i])).sum(-1)
+
+                #KL_i = -log_standard_normal(zs[i] - mus[i]).sum(-1)
+
+                KL_i = loss(mus[i], zs[i])
+
+                #print(torch.abs(mus[i])-torch.abs(zs[i]))
 
             KL = KL + KL_i
 
@@ -192,8 +216,16 @@ class DDGM(nn.Module):
 
         if reduction == 'sum':
             loss = -(RE - KL).sum()
+
+            if self.helper % 4 == 0:
+                if int(RE.size()[0]) == batch_size:
+                    print("RE", str(RE.sum()), "KL_T", str(helper.sum()), "KL_0..T-1", str(KL.sum()))
+
+            self.helper += 1
+
         else:
             loss = -(RE - KL).mean()
+
 
         return loss
 
@@ -209,6 +241,10 @@ class DDGM(nn.Module):
             z = self.reparameterization(mu_i, log_var_i)
             if using_conv:
                 z = torch.unsqueeze(z, 1)  # Bjarke added this
+        #for i in range(T-2, -1, -1):
+        #    mu_i = self.decoder_net(z)
+        #    z = self.reparameterization(mu_i, torch.zeros((64), device="cuda"))
+
 
         mu_x = self.decoder_net(z)
 
@@ -229,19 +265,23 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
         # load best performing model
         model_best = torch.load(name + '.model')
     model_best.eval()
-    loss = 0.
+
+    loss = 0
     N = 0.
-    #batch_data = []
     for indx_batch, test_batch in enumerate(test_loader):
         if using_conv:
             test_batch = torch.unsqueeze(test_batch, 1) #Bjarke added this
         test_batch = test_batch.to(device=device)
 
         loss_t = model_best.forward(test_batch, reduction='sum')
+
+        loss_decomposed_t = model_best.T
         #batch_data.append(model_best.batch_data)
         loss = loss + loss_t.item()
         N = N + test_batch.shape[0]
-    loss = loss / N
+
+    loss = loss / N #total loss
+
     #plot_epoch_data(batch_data)
     if epoch is None:
         print(f'FINAL LOSS: nll={loss}')
@@ -249,6 +289,8 @@ def evaluation(test_loader, name=None, model_best=None, epoch=None):
         print(f'Epoch: {epoch}, val nll={loss}')
 
     return loss
+
+
 
 def training(name, max_patience, num_epochs, model, optimizer, training_loader, val_loader):
     nll_val = []
@@ -275,7 +317,8 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
             optimizer.step()
 
         if collect_data:
-            plot_epoch_data(epoch_data)
+            plot_epoch_data(epoch_data, name)
+
         # Validation
         loss_val = evaluation(val_loader, model_best=model, epoch=e)
         nll_val.append(loss_val)  # save for plotting
@@ -300,7 +343,6 @@ def training(name, max_patience, num_epochs, model, optimizer, training_loader, 
     nll_val = np.asarray(nll_val)
 
     return nll_val
-
 #sample a real image
 def samples_real(name, test_loader):
     # REAL-------
@@ -366,31 +408,32 @@ def plot_curve(name, nll_val):
     plt.savefig(name + '_nll_val_curve.pdf', bbox_inches='tight')
     plt.close()
 
-def plot_epoch_data(epoch_data):
+def plot_epoch_data(epoch_data, name, show = False):
 
-    plot_dict = {"RE": [], "qz0": [], "pz0": [], "qz": [], "pz": [], "mus": [], "log_var": []}
+    plot_dict = {"RE": [], "qzT": [], "pzT": [], "qz": [], "pz": [], "mus": [], "log_var": []}
     n_batches = len(epoch_data)
 
-    qz0 = []
-    pz0 = []
+    qzT = []
+    pzT = []
     qz = []
     pz = []
     RE = []
     mus = []
     log_var = []
     for i in range(n_batches):
-        qz0.append(epoch_data[i]["qz0"])
-        pz0.append(epoch_data[i]["pz0"])
+        qzT.append(epoch_data[i]["qzT"])
+        pzT.append(epoch_data[i]["pzT"])
         qz.append(epoch_data[i]["qz"])
         pz.append(epoch_data[i]["pz"])
         RE.append(epoch_data[i]["RE"])
         mus.append(epoch_data[i]["mus"])
         log_var.append(epoch_data[i]["log_var"])
 
-    plt.plot(range(n_batches), qz0)
-    plt.plot(range(n_batches), pz0)
+    plt.plot(range(n_batches), qzT)
+    plt.plot(range(n_batches), pzT)
     plt.title('pz and qz at timestep 0, for every batch')
-    plt.show()
+    if show:
+        plt.show()
 
 
     new_pz = []
@@ -406,7 +449,8 @@ def plot_epoch_data(epoch_data):
     for i in range(T-1):
         plt.plot(range(n_batches), new_pz[i])
     plt.title('pz for each diffusion step over each batch')
-    plt.show()
+    if show:
+        plt.show()
 
     for i in range(T - 1):
         plt.plot(range(n_batches), new_qz[i])
@@ -415,7 +459,8 @@ def plot_epoch_data(epoch_data):
 
     plt.plot(range(n_batches), RE)
     plt.title('RE')
-    plt.show()
+    if show:
+        plt.show()
 
 
 
@@ -431,18 +476,19 @@ def plot_epoch_data(epoch_data):
     sns.heatmap(mus[rBatch2][rTimestep2][rBatchElement2].detach().cpu().numpy().reshape(8, 8), linewidth=0.5, cmap='coolwarm', ax=ax2)
     sns.heatmap(torch.exp(log_var[rBatch1][rTimestep1][rBatchElement1]).detach().cpu().numpy().reshape(8, 8), linewidth=0.5, ax=ax3)
     sns.heatmap(torch.exp(log_var[rBatch2][rTimestep2][rBatchElement2]).detach().cpu().numpy().reshape(8, 8), linewidth=0.5, ax=ax4)
-    """
+
     ax1.title.set_text('Means at Timestep ' + str(rTimestep1))
     ax2.title.set_text('Means at Timestep ' + str(rTimestep2))
     ax3.title.set_text('Variance at Timestep ' + str(rTimestep1))
     ax4.title.set_text('Variance  at Timestep ' + str(rTimestep2))
-    """
+
     for ax in fig.get_axes():
         ax.label_outer()
 
-    plt.show()
+    if show:
+        plt.show()
 
-    KL = np.squeeze(np.array(qz0)-np.array(pz0))
+    KL = np.squeeze(np.array(qzT)-np.array(pzT))
     for i in range(T-1):
         KL += np.array(new_qz[i])-np.array(new_pz[i])
     plt.plot(range(n_batches),  KL, label='KL')
@@ -450,11 +496,17 @@ def plot_epoch_data(epoch_data):
     plt.legend()
     plt.title("All the different measures of loss")
     plt.xlabel("Epochs")
-    plt.show()
+    if show:
+        plt.show()
 
     plt.plot(range(n_batches), RE, label='RE')
     plt.title("Reconstruction loss")
-    plt.show()
+    if show:
+        plt.show()
+    plt.close()
+
+
+
 def test(model, test_loader, nll_val):
     # Final evaluation
     test_loss = evaluation(name=result_dir + name, test_loader=test_loader)
